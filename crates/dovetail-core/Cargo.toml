@@ -1,0 +1,24 @@
+[package]
+name = "dovetail-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# The finetype-guided detector pulls finetype-model (candle ML stack). On by
+# default so a normal build is the full survey; disable for fast iteration on
+# the structure layer:  cargo test -p dovetail-core --no-default-features
+default = ["finetype-guided"]
+finetype-guided = ["dep:finetype-model"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+finetype-core = { workspace = true }
+finetype-model = { workspace = true, optional = true }
+parquet = { version = "53", default-features = false, features = ["arrow"] }
+
+[dev-dependencies]
+duckdb = { version = "1.4", features = ["bundled"] }

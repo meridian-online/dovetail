@@ -1,2 +1,5 @@
 # Build brief — kept local, never committed
 brief.md
+
+# Rust build artifacts
+/target
