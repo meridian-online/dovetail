@@ -73,18 +73,17 @@ pub fn emit_sql(
     sql.push('\n');
 
     let read = read_call(det, source);
+    let table = quote_ident(table_name);
 
     // The duplicate-rename policy projects the read with disambiguated names so
     // no column's data is dropped. With no duplicates (the common case) the load
     // is a plain SELECT *.
     if det.duplicate_columns.is_empty() || policy != DuplicatePolicy::Rename {
-        sql.push_str(&format!(
-            "CREATE OR REPLACE TABLE {table_name} AS\nSELECT * FROM {read};\n"
-        ));
+        sql.push_str(&format!("CREATE OR REPLACE TABLE {table} AS\nSELECT * FROM {read};\n"));
     } else {
         let projection = renamed_projection(det);
         sql.push_str(&format!(
-            "CREATE OR REPLACE TABLE {table_name} AS\nSELECT {projection}\nFROM {read};\n"
+            "CREATE OR REPLACE TABLE {table} AS\nSELECT {projection}\nFROM {read};\n"
         ));
     }
     sql
