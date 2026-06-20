@@ -1,0 +1,41 @@
+id: 0002-relate
+feature: Discover how datasets relate
+as_a: data analyst
+i_want: dovetail to find candidate joins and enrichment opportunities across my DuckDB tables, each with its evidence and a confidence score
+so_that: I can curate a trustworthy relationship model without eyeballing every column pair
+goal: candidate edges recorded as Data Package foreignKeys carrying evidence, confidence and status; only accepted edges ever compile to constraint DDL or join SQL
+maturity: planned
+scenarios:
+- name: Suggest a candidate foreign key with evidence
+  given: two loaded DuckDB tables that share a key
+  when: I run dovetail relate
+  then: a candidate edge is recorded as a foreignKey with status suggested and its evidence (value overlap, cardinality, finetype semantic-type agreement, name similarity) and confidence score
+  gate: false
+- name: Accept an edge and compile constraint DDL
+  given: a suggested edge I have reviewed
+  when: I mark it accepted and render constraints
+  then: dovetail emits PK/FK constraint DDL for the accepted, enforceable subset
+  gate: false
+- name: A rejected edge never compiles
+  given: a spurious suggested edge
+  when: I mark it rejected
+  then: it is never rendered as a constraint or join SQL, so a guess cannot silently become a hard constraint
+  gate: false
+- name: Render the accepted model as a graph
+  given: a set of accepted edges
+  when: I ask for a graph view
+  then: dovetail renders a Mermaid erDiagram (or a brightfield feed) for triage
+  gate: false
+- name: Emit join SQL for accepted edges
+  given: accepted edges destined for automation
+  when: I render join SQL
+  then: dovetail emits join / enrichment SQL for those edges
+  gate: false
+specs: []
+relations: []
+references:
+- .orbit/choices/0003-foreign-keys-as-relationship-model.yaml
+- .orbit/choices/0007-accepted-edges-only-compile.yaml
+- .orbit/choices/0009-survey-relate-seam.yaml
+- .orbit/choices/0010-relate-emit-renders.yaml
+notes: []
