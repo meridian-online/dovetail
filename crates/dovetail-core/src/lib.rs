@@ -5,6 +5,7 @@
 //! Per choice 0008 (pure Rust core under a thin CLI) and spec
 //! 2026-06-20-survey-detection-and-load.
 
+pub mod datapackage;
 pub mod detect;
 pub mod emit;
 pub mod eval;
