@@ -31,7 +31,8 @@ scenarios:
   when: survey completes
   then: a datapackage.json describes each resource with its source path, detected format, load recipe, and Table Schema
   gate: false
-specs: []
+specs:
+- .orbit/specs/2026-06-20-survey-detection-and-load/spec.yaml
 relations: []
 references:
 - .orbit/choices/0001-dovetail-decides-arcform-executes.yaml
