@@ -44,7 +44,7 @@ acceptance_criteria:
     a JSON file with a single top-level object. DELIVERABLE: the corpus + manifests
     under a test fixtures tree. verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-02
   description: |
     DETECTOR TRAIT + >=2 IMPLEMENTATIONS. Define `Detector` in dovetail-core

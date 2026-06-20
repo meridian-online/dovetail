@@ -1,0 +1,9 @@
+{
+  "name": "json-object",
+  "file": "data.json",
+  "format": "json",
+  "structure": "single-object",
+  "row_count": 1,
+  "columns": ["id", "title", "active"],
+  "notes": "single top-level object; one row"
+}

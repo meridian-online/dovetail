@@ -1,0 +1,9 @@
+{
+  "name": "ndjson-simple",
+  "file": "data.ndjson",
+  "format": "ndjson",
+  "structure": "flat-table",
+  "row_count": 3,
+  "columns": ["id", "sku", "qty"],
+  "notes": "newline-delimited JSON; one record per line"
+}

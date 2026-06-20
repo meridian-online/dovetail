@@ -1,0 +1,10 @@
+{
+  "name": "csv-dup-cols",
+  "file": "data.csv",
+  "format": "csv",
+  "structure": "flat-table",
+  "row_count": 2,
+  "columns": ["id", "name", "id", "name"],
+  "duplicate_columns": ["id", "name"],
+  "notes": "duplicate column names; survey must surface a rename policy (ac-11)"
+}
