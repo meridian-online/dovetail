@@ -80,7 +80,7 @@ acceptance_criteria:
     fields where they apply. The emitted SQL is plain and reviewable, not clever —
     legibility is the output value. verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-06
   description: |
     DATA PACKAGE ASSEMBLY. survey emits a datapackage.json per surveyed file with
@@ -89,7 +89,7 @@ acceptance_criteria:
     provenance rides the standard fields (hash, bytes, format, created). verifies:
     capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-07
   description: |
     ROUND-TRIP. In the test suite, the emitted .sql runs against DuckDB and yields a
@@ -97,7 +97,7 @@ acceptance_criteria:
     DuckDB runs only here, in tests — never as survey's own load path. A mismatch
     fails the test loudly (it is the core failure mode). verifies: capability.
   gate: true
-  checked: false
+  checked: true
 - id: ac-08
   description: |
     DESCRIPTOR CONFORMANCE. Every emitted datapackage.json validates against the
@@ -105,13 +105,13 @@ acceptance_criteria:
     test suite. Custom properties (the load recipe) are present without breaking
     conformance. verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-09
   description: |
     RUNG REPORTING. For every input, survey prints which rung it chose (SQL here)
     and why, so the analyst sees the path taken. verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-10
   description: |
     DETECTION-QUALITY GATE (kill-condition guard). On the fixture corpus, the chosen
@@ -121,7 +121,7 @@ acceptance_criteria:
     trust. This is the operational form of the primary kill condition. verifies:
     capability.
   gate: true
-  checked: false
+  checked: true
 - id: ac-11
   description: |
     DUPLICATE-KEY / DUPLICATE-COLUMN POLICY SURFACED. When an input carries duplicate
@@ -129,4 +129,4 @@ acceptance_criteria:
     policy (keep-last, keep-first, collect-to-array, or rename) rather than letting a
     parser silently drop data. verifies: capability.
   gate: false
-  checked: false
+  checked: true
