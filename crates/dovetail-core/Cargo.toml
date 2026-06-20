@@ -23,3 +23,6 @@ sha2 = "0.10"
 
 [dev-dependencies]
 duckdb = { version = "1.4", features = ["bundled"] }
+# ac-08: descriptor conformance is checked in the test suite only — jsonschema
+# stays out of the runtime dependency graph.
+jsonschema = "0.26"
