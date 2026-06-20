@@ -54,7 +54,7 @@ acceptance_criteria:
     structure shape-heuristic with no finetype, for the head-to-head. verifies:
     capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-03
   description: |
     EVAL HARNESS. Run each Detector over the fixture corpus and report a
@@ -62,7 +62,7 @@ acceptance_criteria:
     fixtures), with a per-fixture breakdown so misses are inspectable. DELIVERABLE:
     a reproducible eval run + its results table. verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-04
   description: |
     PICK + JUSTIFY THE WINNER. From ac-03's numbers, choose the detector survey
@@ -70,7 +70,7 @@ acceptance_criteria:
     bar it must clear in ac-10. DELIVERABLE: a short decision note in the spec
     folder. verifies: capability.
   gate: true
-  checked: false
+  checked: true
   ac_type: doc
 - id: ac-05
   description: |
