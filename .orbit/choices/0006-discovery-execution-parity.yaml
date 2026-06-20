@@ -1,0 +1,28 @@
+id: '0006'
+title: Discovery-to-execution parity via byte-identical bundled tools
+status: accepted
+date_created: 2026-06-20
+date_modified: 2026-06-20
+body: |
+  # 0006. Discovery-to-execution parity via byte-identical bundled tools
+
+  ## Context and Problem Statement
+
+  A design commitment borrowed from systematic trading's backtest-to-live constraint: the environment you explore in must not diverge from the one that runs later. dovetail's bundled transform tools are used during survey / relate discovery, and the emitted scripts call transform tools too. If those are different binaries, a recipe can work in discovery and break in execution.
+
+  ## Considered Options
+
+  - **Tolerate version drift.** Discovery uses bundled tools; emitted scripts call whatever is on the user's PATH (a version floor, not a guarantee).
+  - **Byte-identical parity.** The bundled transform binaries used during discovery are the exact ones the emitted scripts call.
+
+  ## Decision Outcome
+
+  Chosen option: **discovery-to-execution parity**. The bundled transform tools used during discovery are byte-identical to the ones the emitted scripts call later — what you explored with is what runs. This is the reason the transform shim (`dovetail jaq` / `calamine` / `calcard`) exists: emitted scripts call dovetail's own vendored binaries rather than whatever is on the user's PATH.
+
+  ### Consequences
+
+  - Good, because it eliminates a class of "worked in discovery, broke in execution" failures
+  - Good, because it gives the transform shim its reason to exist and pins down choice 0005's default
+  - Bad, because dovetail must vendor and version every transform tool it offers
+  - Neutral, because the optional `--engine jq` verification path (choice 0005) is a deliberate, recorded exception
+references: []

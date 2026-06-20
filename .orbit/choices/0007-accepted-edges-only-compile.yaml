@@ -1,0 +1,28 @@
+id: '0007'
+title: Only accepted relationship edges compile to constraints or SQL
+status: accepted
+date_created: 2026-06-20
+date_modified: 2026-06-20
+body: |
+  # 0007. Only accepted relationship edges compile to constraints or SQL
+
+  ## Context and Problem Statement
+
+  relate's relationship discovery is probabilistic — it scores candidate edges on value overlap, cardinality, finetype semantic-type agreement and name similarity. Those guesses must not silently become hard constraints. relate is exploratory and local, not a pipeline stage.
+
+  ## Considered Options
+
+  - **Auto-promote high-confidence edges** to constraints / SQL above a score threshold. Less manual triage, but a guess can become a hard constraint without a human seeing it.
+  - **Compile only human-accepted edges,** keeping relate human-in-the-loop and out of CI.
+
+  ## Decision Outcome
+
+  Chosen option: **only edges with status `accepted` ever compile** to constraint DDL or join SQL. Discovery records each edge as `suggested`; a human moves it to `accepted` or `rejected`. Relationship discovery stays human-in-the-loop and local; it is not a CI step. dovetail's CI role is bounded to reproducible ingestion — only the accepted, compiled outputs (constraint DDL, join SQL) belong in automation.
+
+  ### Consequences
+
+  - Good, because a probabilistic guess never silently becomes a hard constraint
+  - Good, because it keeps relate interactive and auditable — human curation is the gate
+  - Bad, because relationship modelling cannot be fully automated in a pipeline
+  - Neutral, because the accepted, compiled outputs are still free to enter automation downstream
+references: []

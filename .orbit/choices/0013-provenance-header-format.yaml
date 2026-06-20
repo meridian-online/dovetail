@@ -1,0 +1,25 @@
+id: '0013'
+title: Provenance header format on emitted artifacts
+status: proposed
+date_created: 2026-06-20
+date_modified: 2026-06-20
+body: |
+  # 0013. Provenance header format on emitted artifacts
+
+  ## Context and Problem Statement
+
+  A design commitment is that provenance is stamped, not implied — every emitted artefact records what produced it and under which tool versions. Choice 0006 (discovery-to-execution parity) makes those versions meaningful. The exact stamped field set and header format need pinning.
+
+  ## Considered Options
+
+  Candidate fields to stamp:
+
+  - **dovetail version.**
+  - **Bundled tool versions** — jaq, calamine, calcard, DuckDB — plus the resolved system jq version when the `--engine jq` verification path was used.
+  - **Source files and their content hashes.**
+  - **The recipe** (or a reference to the emitted `.sql` / `.yaml`) and the chosen fallback rung (choice 0004).
+
+  ## Decision Outcome
+
+  Open — pending `/orb:design`. The principle is settled (stamp, don't imply); only the exact field set and header format remain.
+references: []

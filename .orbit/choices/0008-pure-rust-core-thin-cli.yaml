@@ -1,0 +1,28 @@
+id: '0008'
+title: Pure Rust core library under a thin CLI, mirroring finetype
+status: accepted
+date_created: 2026-06-20
+date_modified: 2026-06-20
+body: |
+  # 0008. Pure Rust core library under a thin CLI, mirroring finetype
+
+  ## Context and Problem Statement
+
+  dovetail needs a repo layout. finetype already established a pattern in meridian: a reusable core library under a thin CLI, which leaves room for a DuckDB extension or MCP server later without restructuring.
+
+  ## Considered Options
+
+  - **A monolithic binary** with logic living in the CLI crate. Simpler at first, harder to reuse or embed.
+  - **A pure-Rust core library (`dovetail-core`) under a thin CLI (`dovetail`),** mirroring finetype.
+
+  ## Decision Outcome
+
+  Chosen option: **pure Rust, `dovetail-core` under `dovetail`**. `dovetail-core` (lib) holds `detect`, `convert`, `relate`, the plan model, and `emit`; `dovetail` (bin) is a thin CLI over the core. Bundled transform crates — `jaq` (JSON / YAML / TOML / XML), `calamine` (Excel), `calcard` (.ics / .vcf) — and DuckDB via the Rust `duckdb` crate. A unit-testable core that leaves room for a DuckDB extension or MCP server later, as finetype does.
+
+  ### Consequences
+
+  - Good, because core logic is unit-testable independent of the CLI
+  - Good, because it mirrors finetype, so the two packages share shape and conventions
+  - Good, because it leaves room for a DuckDB extension or MCP server without restructuring
+  - Bad, because the lib / bin split is mild upfront overhead versus a single crate
+references: []

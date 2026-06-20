@@ -1,0 +1,21 @@
+id: '0009'
+title: The survey-to-relate seam — who runs the load
+status: proposed
+date_created: 2026-06-20
+date_modified: 2026-06-20
+body: |
+  # 0009. The survey-to-relate seam — who runs the load
+
+  ## Context and Problem Statement
+
+  relate needs data in DuckDB, but survey only emits a recipe — it loads nothing. So there is a gap between the two verbs: something must run survey's emitted load before relate can read tables. Any resolution must respect choice 0001 (dovetail does not execute pipelines), so it must not turn dovetail into a pipeline engine.
+
+  ## Considered Options
+
+  - **relate runs survey's emitted SQL against a scratch DuckDB.** A convenience for local exploration; dovetail executes its *own* emitted output, not a competing pipeline. Risk: it grows an execution surface that edges toward choice 0001.
+  - **The analyst always runs the load step themselves between survey and relate.** Keeps choice 0001 pristine; costs a manual step and a documented handoff.
+
+  ## Decision Outcome
+
+  Open — pending `/orb:design`. Decide alongside choice 0012 (finetype integration): both turn on whether `dovetail-core` takes a runtime / execution dependency or stays a thin emit-only compiler. If relate gains a scratch-DuckDB runner *and* finetype is a library dependency, dovetail quietly grows the execution surface that choice 0001 rules out — that tension is the thing to resolve here.
+references: []

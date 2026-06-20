@@ -1,0 +1,21 @@
+id: '0012'
+title: finetype integration — library dependency or upstream artifact
+status: proposed
+date_created: 2026-06-20
+date_modified: 2026-06-20
+body: |
+  # 0012. finetype integration — library dependency or upstream artifact
+
+  ## Context and Problem Statement
+
+  relate uses finetype semantic-type agreement as relationship evidence, and survey describes resources with a Table Schema and types. So dovetail depends on finetype's output somehow. Whether that is a library dependency of `dovetail-core` or an upstream artefact the tools consume shapes the dependency graph and whether the tools are usable independently.
+
+  ## Considered Options
+
+  - **finetype as a library dependency of `dovetail-core`.** Tight integration; semantic typing available in-process; couples the two crates' versions.
+  - **finetype as an upstream artefact that survey and relate consume.** Looser coupling; dovetail reads finetype's emitted profiles / types; the tools stay usable independently.
+
+  ## Decision Outcome
+
+  Open — pending `/orb:design`. Decide alongside choice 0009 (the survey-relate seam): both turn on whether `dovetail-core` takes a runtime dependency or stays a thin emit-only compiler. A library dependency here plus a scratch-DuckDB runner in 0009 together push dovetail toward an execution surface that choice 0001 rules out.
+references: []

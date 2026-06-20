@@ -1,0 +1,23 @@
+id: '0010'
+title: relate emit detail — which renders ship and their flags
+status: proposed
+date_created: 2026-06-20
+date_modified: 2026-06-20
+body: |
+  # 0010. relate emit detail — which renders ship and their flags
+
+  ## Context and Problem Statement
+
+  `foreignKeys` is the canonical relationship model (choice 0003); every downstream render is a projection of it. Which renders ship, with which CLI flags, and whether plain JSON Schema is offered for per-table shape, all need pinning.
+
+  ## Considered Options
+
+  - **Constraint DDL** — for the accepted, enforceable PK/FK subset.
+  - **Graph view** — Mermaid `erDiagram`, or a feed into brightfield, for triage.
+  - **Join / enrichment SQL** — for accepted edges destined for automation.
+  - **Per-table JSON Schema output** — where, if anywhere, plain JSON Schema is offered for per-table shape rather than only as an internal validation surface.
+
+  ## Decision Outcome
+
+  Open — pending `/orb:design`. The render set is likely all of the above (per the brief); the open part is the exact CLI flags and whether per-table JSON Schema is a first-class emitted output or an internal validation surface only.
+references: []
