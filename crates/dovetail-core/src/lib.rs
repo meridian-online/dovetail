@@ -6,6 +6,7 @@
 //! 2026-06-20-survey-detection-and-load.
 
 pub mod detect;
+pub mod emit;
 pub mod eval;
 pub mod structure;
 
