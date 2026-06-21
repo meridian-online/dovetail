@@ -4,7 +4,7 @@ as_a: data analyst
 i_want: dovetail to find candidate joins across my DuckDB tables, verify each against the data, and accept the provable ones automatically
 so_that: I get a trustworthy relationship model without adjudicating every column pair — only the genuinely uncertain edges need my eyes
 goal: candidate edges recorded as Data Package foreignKeys carrying evidence, confidence and status; verified high-confidence edges auto-accept and compile; only accepted edges ever compile to constraint DDL or join SQL
-maturity: planned
+maturity: emerging
 scenarios:
 - name: Suggest a candidate foreign key with evidence
   given: two loaded DuckDB tables that share a key

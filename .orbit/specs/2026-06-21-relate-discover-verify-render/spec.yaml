@@ -47,7 +47,7 @@ goal: |
   - Tabletop: .orbit/specs/2026-06-21-relate-discover-verify-render/tabletop.md
 cards:
 - 0002-relate
-status: open
+status: closed
 labels:
 - relate
 - foreign-keys
@@ -121,3 +121,4 @@ acceptance_criteria:
     uncertain band as needing a look. verifies: capability.
   gate: false
   checked: true
+closed_at: 2026-06-21T08:21:24.962443Z
