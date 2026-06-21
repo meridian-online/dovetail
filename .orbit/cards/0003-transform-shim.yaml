@@ -26,7 +26,8 @@ scenarios:
   when: I pass --engine jq
   then: the same program runs through canonical system jq and the resolved jq version is recorded in the run manifest
   gate: false
-specs: []
+specs:
+- .orbit/specs/2026-06-21-jaq-passthrough-shim/spec.yaml
 relations: []
 references:
 - .orbit/choices/0005-embedded-jaq-default-jq-optional.yaml
