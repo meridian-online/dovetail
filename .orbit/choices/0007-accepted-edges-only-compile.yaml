@@ -2,27 +2,32 @@ id: '0007'
 title: Only accepted relationship edges compile to constraints or SQL
 status: accepted
 date_created: 2026-06-20
-date_modified: 2026-06-20
+date_modified: 2026-06-21
 body: |
   # 0007. Only accepted relationship edges compile to constraints or SQL
 
   ## Context and Problem Statement
 
-  relate's relationship discovery is probabilistic — it scores candidate edges on value overlap, cardinality, finetype semantic-type agreement and name similarity. Those guesses must not silently become hard constraints. relate is exploratory and local, not a pipeline stage.
+  relate's relationship discovery is probabilistic — it scores candidate edges on value overlap, cardinality, finetype semantic-type agreement and name similarity. Those guesses must not silently become hard constraints. The original framing made a human the gate. But the four-pillars test (author-level interaction: agents pay the cost so the author doesn't) rejects a per-edge manual accept queue as needless toil. The question reframed: what must be true before an edge compiles — a human's say-so, or that the edge provably holds?
 
   ## Considered Options
 
-  - **Auto-promote high-confidence edges** to constraints / SQL above a score threshold. Less manual triage, but a guess can become a hard constraint without a human seeing it.
-  - **Compile only human-accepted edges,** keeping relate human-in-the-loop and out of CI.
+  - **Auto-promote high-confidence edges** to constraints / SQL above a score threshold. Less manual triage, but an *unverified* guess can become a hard constraint without a human seeing it.
+  - **Compile only human-accepted edges,** keeping relate human-in-the-loop. No guess slips through, but every edge — even the obvious ones — is analyst toil.
+  - **Verification-based auto-accept.** relate verifies each edge against the data (referential integrity holds AND the parent side is unique/PK-like); a verified high-confidence edge auto-accepts with no human action; only the uncertain band is surfaced.
 
   ## Decision Outcome
 
-  Chosen option: **only edges with status `accepted` ever compile** to constraint DDL or join SQL. Discovery records each edge as `suggested`; a human moves it to `accepted` or `rejected`. Relationship discovery stays human-in-the-loop and local; it is not a CI step. dovetail's CI role is bounded to reproducible ingestion — only the accepted, compiled outputs (constraint DDL, join SQL) belong in automation.
+  Chosen option: **only edges with status `accepted` compile — and `accepted` is reached by verification, not only by manual review.** relate checks each edge against the data (zero orphan rows AND a unique/PK-like parent); a verified high-confidence edge is auto-assigned `accepted` with no analyst action, a verification failure becomes `rejected`, and a plausible-but-unverified/ambiguous edge stays `suggested` for an optional look. Only `accepted` edges ever compile to constraint DDL or join SQL.
+
+  This refines the original "human is the gate" framing (per tabletop 2026-06-21-relate-discover-verify-render). The **safety intent is unchanged**: no *unverified* guess becomes a hard constraint. What changed is that *verification*, not the analyst, earns "accepted" for the obvious edges — giving the best model without the toil. The human still owns the uncertain band and can override any status.
 
   ### Consequences
 
-  - Good, because a probabilistic guess never silently becomes a hard constraint
-  - Good, because it keeps relate interactive and auditable — human curation is the gate
-  - Bad, because relationship modelling cannot be fully automated in a pipeline
+  - Good, because an *unverified* guess never silently becomes a hard constraint — the verification gate is the safety rail
+  - Good, because the obvious, provable edges accept automatically — no per-edge adjudication queue (four pillars: author-level interaction)
+  - Good, because relate stays auditable — every status carries its evidence + verification result, and the human can override
+  - Bad, because "verified" must be defined carefully — orphan-free alone is insufficient (a boolean column is orphan-free against another boolean); the parent-uniqueness gate is load-bearing
   - Neutral, because the accepted, compiled outputs are still free to enter automation downstream
-references: []
+references:
+- .orbit/specs/2026-06-21-relate-discover-verify-render/spec.yaml
