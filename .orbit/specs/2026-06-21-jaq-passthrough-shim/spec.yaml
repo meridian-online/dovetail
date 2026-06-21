@@ -45,7 +45,7 @@ goal: |
   - Tabletop: .orbit/specs/2026-06-21-jaq-passthrough-shim/tabletop.md
 cards:
 - 0003-transform-shim
-status: open
+status: closed
 labels:
 - transform-shim
 - jaq
@@ -121,3 +121,4 @@ acceptance_criteria:
     (provenance header). verifies: capability.
   gate: false
   checked: true
+closed_at: 2026-06-21T03:13:38.835622Z

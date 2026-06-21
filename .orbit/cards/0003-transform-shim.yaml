@@ -1,0 +1,37 @@
+id: 0003-transform-shim
+feature: Pinned transform shim over bundled tools
+as_a: data analyst
+i_want: emitted scripts to call dovetail's own vendored transform binaries (jaq, calamine, calcard) rather than whatever is on my PATH
+so_that: what I explored with during discovery is byte-identical to what runs later
+goal: jaq as true passthrough plus thin, stable CLIs over the library-backed tools, with resolved tool versions stamped on every emitted artifact
+maturity: emerging
+scenarios:
+- name: jaq passthrough preserves the actual program
+  given: a jq program and an input file
+  when: I run dovetail jaq with that program
+  then: the embedded jaq runs the program unchanged and a reviewer reads the actual jq program in the emitted recipe
+  gate: false
+- name: calamine reads an Excel sheet
+  given: an .xlsx file
+  when: I run dovetail calamine on it
+  then: dovetail emits the sheet as Parquet via the vendored calamine CLI
+  gate: false
+- name: calcard converts calendar and contact files
+  given: an .ics or .vcf file DuckDB cannot read
+  when: I run dovetail calcard on it
+  then: dovetail emits JSON (via JSCalendar / JSContact) ready to load
+  gate: false
+- name: Optional reference parity through system jq
+  given: a recorded jq program
+  when: I pass --engine jq
+  then: the same program runs through canonical system jq and the resolved jq version is recorded in the run manifest
+  gate: false
+specs:
+- .orbit/specs/2026-06-21-jaq-passthrough-shim/spec.yaml
+relations: []
+references:
+- .orbit/choices/0005-embedded-jaq-default-jq-optional.yaml
+- .orbit/choices/0006-discovery-execution-parity.yaml
+- .orbit/choices/0011-shim-cli-surface.yaml
+- .orbit/choices/0013-provenance-header-format.yaml
+notes: []
