@@ -10,6 +10,7 @@ use std::process::ExitCode;
 
 use dovetail_core::emit::DuplicatePolicy;
 use dovetail_core::survey::{survey_file, Outcome};
+use dovetail_core::transform::{run_jaq, JAQ_CORE_VERSION};
 use dovetail_core::ShapeHeuristicDetector;
 
 fn main() -> ExitCode {
@@ -23,13 +24,47 @@ fn main() -> ExitCode {
             }
             run_survey(&paths)
         }
+        Some("jaq") => run_jaq_cmd(args.collect()),
         Some(other) => {
-            eprintln!("dovetail: unknown command {other:?} (try: survey)");
+            eprintln!("dovetail: unknown command {other:?} (try: survey, jaq)");
             ExitCode::from(2)
         }
         None => {
-            eprintln!("usage: dovetail survey <paths...>");
+            eprintln!("usage: dovetail <survey|jaq> ...");
             ExitCode::from(2)
+        }
+    }
+}
+
+/// `dovetail jaq <program> <file>` — run a jq program through embedded jaq,
+/// emitting NDJSON. `dovetail jaq --version` stamps the embedded jaq version.
+fn run_jaq_cmd(args: Vec<String>) -> ExitCode {
+    if args.first().map(|s| s.as_str()) == Some("--version") {
+        println!("dovetail jaq: embedded jaq-core {JAQ_CORE_VERSION}");
+        return ExitCode::SUCCESS;
+    }
+    let [program, file] = match args.as_slice() {
+        [p, f] => [p, f],
+        _ => {
+            eprintln!("usage: dovetail jaq <program> <file>   (or: dovetail jaq --version)");
+            return ExitCode::from(2);
+        }
+    };
+    let input = match std::fs::read(file) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            eprintln!("dovetail jaq: {file}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match run_jaq(program, &input) {
+        Ok(out) => {
+            print!("{}", out.to_ndjson());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
         }
     }
 }

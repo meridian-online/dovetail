@@ -1,0 +1,56 @@
+[
+  {
+    "name": "identity",
+    "program": ".",
+    "input": "{\"a\":1,\"b\":2}",
+    "jq_equivalent": true
+  },
+  {
+    "name": "iterate-array",
+    "program": ".[]",
+    "input": "[1,2,3]",
+    "jq_equivalent": true
+  },
+  {
+    "name": "field-access",
+    "program": ".name",
+    "input": "{\"name\":\"ada\",\"id\":1}",
+    "jq_equivalent": true
+  },
+  {
+    "name": "hoist-results",
+    "program": ".results[]",
+    "input": "{\"results\":[{\"id\":1},{\"id\":2}]}",
+    "jq_equivalent": true
+  },
+  {
+    "name": "select-active",
+    "program": ".items[] | select(.active)",
+    "input": "{\"items\":[{\"id\":1,\"active\":true},{\"id\":2,\"active\":false}]}",
+    "jq_equivalent": true
+  },
+  {
+    "name": "map-ids",
+    "program": "map(.id)",
+    "input": "[{\"id\":1},{\"id\":2},{\"id\":3}]",
+    "jq_equivalent": true
+  },
+  {
+    "name": "keys",
+    "program": "keys",
+    "input": "{\"b\":2,\"a\":1}",
+    "jq_equivalent": true
+  },
+  {
+    "name": "object-construct",
+    "program": "{id: .id, n: .name}",
+    "input": "{\"id\":7,\"name\":\"grace\",\"extra\":true}",
+    "jq_equivalent": true
+  },
+  {
+    "name": "ndjson-stream",
+    "program": ".v",
+    "input": "{\"v\":1}\n{\"v\":2}\n{\"v\":3}",
+    "jq_equivalent": true
+  }
+]
