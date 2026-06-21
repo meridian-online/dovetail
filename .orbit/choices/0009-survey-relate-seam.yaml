@@ -1,8 +1,8 @@
 id: '0009'
 title: The survey-to-relate seam — who runs the load
-status: proposed
+status: accepted
 date_created: 2026-06-20
-date_modified: 2026-06-20
+date_modified: 2026-06-21
 body: |
   # 0009. The survey-to-relate seam — who runs the load
 
@@ -17,5 +17,19 @@ body: |
 
   ## Decision Outcome
 
-  Open — pending `/orb:design`. Decide alongside choice 0012 (finetype integration): both turn on whether `dovetail-core` takes a runtime / execution dependency or stays a thin emit-only compiler. If relate gains a scratch-DuckDB runner *and* finetype is a library dependency, dovetail quietly grows the execution surface that choice 0001 rules out — that tension is the thing to resolve here.
-references: []
+  Chosen option: **the analyst runs the load step; relate reads an existing DuckDB.** The analyst runs survey's emitted `.sql` (with their own DuckDB) to load the tables, then points `dovetail relate` at that database. relate issues only read queries — schema introspection, value-overlap/cardinality evidence, and referential-integrity verification. dovetail runs no load step. Decided in tabletop 2026-06-21-relate-discover-verify-render.
+
+  This keeps choice 0001 (dovetail decides; arcform and DuckDB execute) pristine: dovetail never executes a load. It is consistent with choice 0014 (read/query DuckDB in-process via the crate, but emit execution artifacts to file) — relate's in-process reads are discovery, not pipeline execution. The scratch-DuckDB-runner option is held in reserve (a fallback if the two-step workflow proves too clunky in practice), not adopted.
+
+  The interaction with choice 0012 (finetype as a library dependency) is resolved cleanly: finetype-as-library is for *detection/typing*, and relate's DuckDB access is *read-only discovery* — neither makes dovetail a pipeline executor.
+
+  ### Consequences
+
+  - Good, because choice 0001 stays intact — dovetail emits and reads, never runs a load
+  - Good, because the seam is a simple, documented handoff (run the emitted `.sql`, then relate)
+  - Bad, because there is a manual step between survey and relate — mitigated by survey's `.sql` being a one-liner to run
+  - Neutral, because the scratch-DuckDB convenience runner remains available as a later opt-in if the handoff proves clunky
+references:
+- .orbit/choices/0001-dovetail-decides-arcform-executes.yaml
+- .orbit/choices/0014-in-process-duckdb-read-emit-to-file.yaml
+- .orbit/specs/2026-06-21-relate-discover-verify-render/spec.yaml

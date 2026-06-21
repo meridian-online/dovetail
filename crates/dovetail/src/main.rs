@@ -25,15 +25,71 @@ fn main() -> ExitCode {
             run_survey(&paths)
         }
         Some("jaq") => run_jaq_cmd(args.collect()),
+        Some("relate") => run_relate(args.collect()),
         Some(other) => {
-            eprintln!("dovetail: unknown command {other:?} (try: survey, jaq)");
+            eprintln!("dovetail: unknown command {other:?} (try: survey, jaq, relate)");
             ExitCode::from(2)
         }
         None => {
-            eprintln!("usage: dovetail <survey|jaq> ...");
+            eprintln!("usage: dovetail <survey|jaq|relate> ...");
             ExitCode::from(2)
         }
     }
+}
+
+/// `dovetail relate <duckdb-path>` — read a loaded DuckDB, discover and verify
+/// candidate foreign keys, report accepted + to-review edges (rejected noise is
+/// suppressed), and print constraint DDL for the auto-accepted edges.
+fn run_relate(args: Vec<String>) -> ExitCode {
+    use dovetail_core::relate::{constraint_ddl, run_path, EdgeStatus};
+    // dovetail relate <duckdb-path> [--out <datapackage.json>]
+    let (db, out) = match args.as_slice() {
+        [d] => (d.as_str(), None),
+        [d, flag, path] if flag == "--out" => (d.as_str(), Some(path.as_str())),
+        _ => {
+            eprintln!("usage: dovetail relate <duckdb-path> [--out <datapackage.json>]");
+            return ExitCode::from(2);
+        }
+    };
+    let run = match run_path(db) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("dovetail relate: {db}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let edges = run.edges;
+
+    // Write/update the Data Package descriptor with the discovered foreignKeys.
+    if let Some(out_path) = out {
+        let json = run.descriptor.to_string();
+        if let Err(e) = std::fs::write(out_path, json) {
+            eprintln!("dovetail relate: writing {out_path}: {e}");
+            return ExitCode::FAILURE;
+        }
+        eprintln!("dovetail relate: wrote descriptor → {out_path}");
+    }
+
+    let (mut accepted_n, mut review_n) = (0u32, 0u32);
+    for e in &edges {
+        let mark = match e.status {
+            EdgeStatus::Accepted => {
+                accepted_n += 1;
+                "ACCEPT"
+            }
+            EdgeStatus::Suggested => {
+                review_n += 1;
+                "REVIEW"
+            }
+            EdgeStatus::Rejected => continue,
+        };
+        println!("{mark}  {} -> {}  ({})", e.child.qualified(), e.parent.qualified(), e.reason);
+    }
+    eprintln!("\ndovetail relate: {accepted_n} accepted, {review_n} to review");
+    if accepted_n > 0 {
+        println!("\n{}", constraint_ddl(&edges).trim_end());
+    }
+    ExitCode::SUCCESS
 }
 
 /// `dovetail jaq <program> <file>` — run a jq program through embedded jaq,

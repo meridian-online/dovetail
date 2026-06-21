@@ -20,12 +20,17 @@ finetype-core = { workspace = true }
 finetype-model = { workspace = true, optional = true }
 parquet = { version = "53", default-features = false, features = ["arrow"] }
 sha2 = "0.10"
+# relate reads and queries DuckDB in-process for discovery (choice 0014):
+# schema introspection, value-overlap/cardinality evidence, referential-integrity
+# verification. Read-only discovery — execution is always an emitted artifact
+# (choice 0001). Bundled libduckdb, pinned via Cargo.lock.
+duckdb = { version = "1.4", features = ["bundled"] }
+# Embedded jaq for the transform shim (choices 0005/0006).
 jaq-core = "3"
 jaq-std = "3"
 jaq-json = "2"
 
 [dev-dependencies]
-duckdb = { version = "1.4", features = ["bundled"] }
 # ac-08: descriptor conformance is checked in the test suite only — jsonschema
 # stays out of the runtime dependency graph.
 jsonschema = "0.26"

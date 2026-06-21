@@ -1,25 +1,30 @@
 id: 0002-relate
 feature: Discover how datasets relate
 as_a: data analyst
-i_want: dovetail to find candidate joins and enrichment opportunities across my DuckDB tables, each with its evidence and a confidence score
-so_that: I can curate a trustworthy relationship model without eyeballing every column pair
-goal: candidate edges recorded as Data Package foreignKeys carrying evidence, confidence and status; only accepted edges ever compile to constraint DDL or join SQL
-maturity: planned
+i_want: dovetail to find candidate joins across my DuckDB tables, verify each against the data, and accept the provable ones automatically
+so_that: I get a trustworthy relationship model without adjudicating every column pair — only the genuinely uncertain edges need my eyes
+goal: candidate edges recorded as Data Package foreignKeys carrying evidence, confidence and status; verified high-confidence edges auto-accept and compile; only accepted edges ever compile to constraint DDL or join SQL
+maturity: emerging
 scenarios:
 - name: Suggest a candidate foreign key with evidence
   given: two loaded DuckDB tables that share a key
   when: I run dovetail relate
-  then: a candidate edge is recorded as a foreignKey with status suggested and its evidence (value overlap, cardinality, finetype semantic-type agreement, name similarity) and confidence score
+  then: a candidate edge is recorded as a foreignKey with its evidence (value overlap, cardinality, name similarity) and a confidence score
   gate: false
-- name: Accept an edge and compile constraint DDL
-  given: a suggested edge I have reviewed
-  when: I mark it accepted and render constraints
-  then: dovetail emits PK/FK constraint DDL for the accepted, enforceable subset
+- name: Verified edge auto-accepts and compiles, no manual step
+  given: a candidate edge whose child values are a subset of a unique/PK-like parent column (referential integrity holds)
+  when: dovetail relate verifies it against the data
+  then: the edge is auto-assigned status accepted and compiles to PK/FK constraint DDL — no per-edge analyst action required
   gate: false
-- name: A rejected edge never compiles
-  given: a spurious suggested edge
-  when: I mark it rejected
-  then: it is never rendered as a constraint or join SQL, so a guess cannot silently become a hard constraint
+- name: An unverified edge never compiles
+  given: a candidate edge with orphan rows, or a coincidental low-cardinality overlap (e.g. two boolean columns)
+  when: dovetail relate verifies it against the data
+  then: it is auto-assigned rejected (verification failed) and is never rendered as a constraint or join SQL — no unverified guess becomes a hard constraint
+  gate: false
+- name: Only the uncertain band is surfaced for review
+  given: a plausible but unverified or ambiguous mid-confidence edge
+  when: dovetail relate runs
+  then: the edge is left status suggested and surfaced to me for an optional look, rather than auto-accepted or silently dropped
   gate: false
 - name: Render the accepted model as a graph
   given: a set of accepted edges
@@ -31,11 +36,14 @@ scenarios:
   when: I render join SQL
   then: dovetail emits join / enrichment SQL for those edges
   gate: false
-specs: []
+specs:
+- .orbit/specs/2026-06-21-relate-discover-verify-render/spec.yaml
 relations: []
 references:
 - .orbit/choices/0003-foreign-keys-as-relationship-model.yaml
 - .orbit/choices/0007-accepted-edges-only-compile.yaml
 - .orbit/choices/0009-survey-relate-seam.yaml
 - .orbit/choices/0010-relate-emit-renders.yaml
-notes: []
+- .orbit/choices/0014-in-process-duckdb-read-emit-to-file.yaml
+notes:
+- 'Known scope limits (as of spec 2026-06-21-relate-discover-verify-render): relate discovers single-column foreign keys between distinct tables only. Self-referential FKs (a column referencing its own table) and composite/multi-column keys are not discovered yet — candidates for a follow-up spec.'

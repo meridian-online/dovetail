@@ -1,0 +1,124 @@
+id: 2026-06-21-relate-discover-verify-render
+goal: |
+  dovetail relate over a loaded DuckDB discovers candidate foreign-key edges,
+  scores each with its evidence, VERIFIES each against the data, writes them as
+  Frictionless foreignKeys with auto-assigned status, and compiles accepted edges
+  to constraint DDL — best model, no analyst toil.
+
+  ## What good looks like
+  An analyst points relate at a DuckDB they loaded (via survey's emitted .sql)
+  and gets back a relationship model where the obvious, provable edges are
+  already accepted and rendered — no per-edge adjudication queue — and only the
+  genuinely uncertain edges are surfaced for an optional look.
+
+  ## The reframe driving this spec
+  The brief framed relationship discovery as human-curated. The author's steer:
+  give the best model WITHOUT making the analyst do the work. The lever is
+  verification — relate already has to query the data, so it can check whether an
+  edge actually holds. A VERIFIED high-confidence edge is not a guess, so it can
+  auto-accept safely. This refines choice 0007: 'accepted' is reached by
+  verification, not only by manual review. The safety intent is unchanged — no
+  UNVERIFIED guess becomes a hard constraint.
+
+  ## Constraints
+  - The seam (choice 0009): relate READS an existing DuckDB the analyst loaded.
+    dovetail runs NO load step; relate issues only read queries (evidence +
+    verification). Keeps choice 0001 (emit-don't-execute) clean — querying for
+    discovery is not running a pipeline.
+  - foreignKeys are canonical (choice 0003) and live INSIDE each resource's Table
+    Schema in the Data Package descriptor, shaped {fields, reference:{resource,
+    fields}}, with dovetail's evidence/confidence/status as custom properties.
+  - Only ACCEPTED edges compile to constraint DDL (choice 0007).
+  - Scope: core evidence (value overlap, cardinality, name similarity) + verify +
+    constraint-DDL render. finetype semantic-type evidence and the Mermaid /
+    join-SQL / brightfield renders are OUT OF SCOPE (their own specs, choice 0010).
+
+  ## Implementation notes
+  - "Verified" must be more than zero-orphans: a boolean column has zero orphans
+    against another boolean. The verification gate REQUIRES the parent side to be
+    unique/PK-like (a real FK references a key). This is the primary kill
+    condition — get it right or auto-accept overcalls coincidental overlaps.
+  - Verify on FULL columns, not samples — a sampled overlap can miss true
+    membership and mis-verify.
+  - duckdb becomes a real (non-dev) dependency of dovetail-core for relate's read
+    queries. Boundary: read-for-discovery, not pipeline execution (choice 0001).
+  - Extends the datapackage module from the survey spec; FKs attach to the
+    resource Table Schema.
+  - Tabletop: .orbit/specs/2026-06-21-relate-discover-verify-render/tabletop.md
+cards:
+- 0002-relate
+status: closed
+labels:
+- relate
+- foreign-keys
+- verification
+- duckdb
+acceptance_criteria:
+- id: ac-01
+  description: |
+    FIXTURE DUCKDB. A multi-table DuckDB fixture with four known cases: (a) a
+    holding FK (e.g. orders.customer_id ⊆ customers.id, zero orphans, parent
+    unique) that MUST auto-accept; (b) a near-miss with orphan rows that must NOT
+    accept; (c) a coincidental low-cardinality overlap (e.g. two boolean/flag
+    columns) that must NOT accept; (d) an ambiguous mid-confidence edge that must
+    surface as suggested. DELIVERABLE: the fixture DB (built reproducibly) + a
+    manifest of expected outcomes. verifies: capability.
+  gate: false
+  checked: true
+- id: ac-02
+  description: |
+    SCHEMA READ + CANDIDATE GENERATION. relate connects to a DuckDB, reads table
+    and column schemas, and generates candidate edges scored with the core
+    evidence signals: value overlap, cardinality, and name similarity. Pairwise
+    work is pruned (by type/name) before the expensive overlap query. verifies:
+    capability.
+  gate: false
+  checked: true
+- id: ac-03
+  description: |
+    VERIFICATION (gate). For each candidate, relate verifies referential
+    integrity against the FULL data: the child values must be a subset of the
+    parent values (orphan-row count == 0), AND the parent side must be unique /
+    PK-like (a real FK references a key). Both conditions are required — orphan-
+    free alone is insufficient (the boolean-vs-boolean trap). This gate is the
+    safety rail that makes auto-accept sound. verifies: capability.
+  gate: true
+  checked: true
+- id: ac-04
+  description: |
+    STATUS ASSIGNMENT (auto-accept). Each edge is assigned status from
+    verification + confidence: verified AND high-confidence → accepted (no analyst
+    action); verification failed → rejected; plausible but unverified / ambiguous
+    → suggested. The holding-FK fixture auto-accepts; the orphan near-miss and the
+    coincidental boolean overlap do NOT; the ambiguous edge becomes suggested.
+    verifies: capability.
+  gate: false
+  checked: true
+- id: ac-05
+  description: |
+    FOREIGNKEYS WRITTEN TO THE DESCRIPTOR. Discovered edges are written as
+    Frictionless foreignKeys INSIDE the relevant resource's Table Schema, shaped
+    {fields, reference:{resource, fields}}, each carrying dovetail's evidence,
+    confidence and status as custom properties (choice 0003). The descriptor still
+    validates against the vendored Frictionless profile. verifies: capability.
+  gate: false
+  checked: true
+- id: ac-06
+  description: |
+    CONSTRAINT DDL FOR ACCEPTED EDGES ONLY. relate compiles accepted edges to
+    PK/FK constraint DDL; suggested and rejected edges do NOT compile (choice
+    0007). The emitted DDL is plain and reviewable. In the test suite the DDL
+    applies cleanly against the fixture DuckDB (the constraint provably holds,
+    since the edge was verified). verifies: capability.
+  gate: false
+  checked: true
+- id: ac-07
+  description: |
+    dovetail relate CLI. The thin bin gains a relate subcommand that connects to a
+    DuckDB, runs discovery + verification, writes/updates the descriptor, and
+    reports per-edge status (accepted / suggested / rejected) with a one-line
+    reason so the analyst sees what was decided and why — surfacing only the
+    uncertain band as needing a look. verifies: capability.
+  gate: false
+  checked: true
+closed_at: 2026-06-21T08:21:24.962443Z
