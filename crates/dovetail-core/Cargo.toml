@@ -25,9 +25,13 @@ sha2 = "0.10"
 # verification. Read-only discovery — execution is always an emitted artifact
 # (choice 0001). Bundled libduckdb, pinned via Cargo.lock.
 duckdb = { version = "1.4", features = ["bundled"] }
+# Embedded jaq for the transform shim (choices 0005/0006).
+jaq-core = "3"
+jaq-std = "3"
+jaq-json = "2"
 
 [dev-dependencies]
 # ac-08: descriptor conformance is checked in the test suite only — jsonschema
 # stays out of the runtime dependency graph.
 jsonschema = "0.26"
-serde_yaml = "0.9"
+serde_yaml = "0.9.34"

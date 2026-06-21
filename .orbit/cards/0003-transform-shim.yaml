@@ -4,7 +4,7 @@ as_a: data analyst
 i_want: emitted scripts to call dovetail's own vendored transform binaries (jaq, calamine, calcard) rather than whatever is on my PATH
 so_that: what I explored with during discovery is byte-identical to what runs later
 goal: jaq as true passthrough plus thin, stable CLIs over the library-backed tools, with resolved tool versions stamped on every emitted artifact
-maturity: planned
+maturity: emerging
 scenarios:
 - name: jaq passthrough preserves the actual program
   given: a jq program and an input file
@@ -26,7 +26,8 @@ scenarios:
   when: I pass --engine jq
   then: the same program runs through canonical system jq and the resolved jq version is recorded in the run manifest
   gate: false
-specs: []
+specs:
+- .orbit/specs/2026-06-21-jaq-passthrough-shim/spec.yaml
 relations: []
 references:
 - .orbit/choices/0005-embedded-jaq-default-jq-optional.yaml
