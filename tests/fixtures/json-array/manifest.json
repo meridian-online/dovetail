@@ -1,0 +1,9 @@
+{
+  "name": "json-array",
+  "file": "data.json",
+  "format": "json",
+  "structure": "records-array",
+  "row_count": 3,
+  "columns": ["id", "country", "iso"],
+  "notes": "top-level array of flat record objects"
+}

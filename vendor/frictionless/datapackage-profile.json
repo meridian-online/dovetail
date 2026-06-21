@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dovetail.meridian/vendor/frictionless/datapackage-profile.json",
+  "title": "Data Package (focused profile)",
+  "description": "Self-contained conformance subset derived from frictionlessdata/datapackage dictionary. See README.md for provenance and scope.",
+  "type": "object",
+  "required": ["resources"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": { "type": "string" },
+    "resources": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/dataResource" }
+    }
+  },
+  "definitions": {
+    "dataResource": {
+      "type": "object",
+      "required": ["name"],
+      "oneOf": [
+        { "required": ["path"] },
+        { "required": ["data"] }
+      ],
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "data": {},
+        "format": { "type": "string" },
+        "mediatype": { "type": "string" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "hash": { "type": "string" },
+        "created": { "type": "string" },
+        "schema": { "$ref": "#/definitions/tableSchema" }
+      }
+    },
+    "tableSchema": {
+      "type": "object",
+      "required": ["fields"],
+      "properties": {
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/tableSchemaField" }
+        }
+      }
+    },
+    "tableSchemaField": {
+      "type": "object",
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": [
+            "string", "number", "integer", "boolean", "object", "array",
+            "date", "time", "datetime", "year", "yearmonth", "duration",
+            "geopoint", "geojson", "any"
+          ]
+        }
+      }
+    }
+  }
+}

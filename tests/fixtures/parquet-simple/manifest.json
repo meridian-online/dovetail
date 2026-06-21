@@ -1,0 +1,9 @@
+{
+  "name": "parquet-simple",
+  "file": "data.parquet",
+  "format": "parquet",
+  "structure": "flat-table",
+  "row_count": 3,
+  "columns": ["id", "product", "price"],
+  "notes": "binary parquet; schema is self-describing"
+}

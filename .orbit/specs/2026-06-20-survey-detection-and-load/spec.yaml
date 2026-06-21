@@ -27,7 +27,7 @@ goal: |
     foreignKeys are out of scope here (they belong to relate, card 0002).
 cards:
 - 0001-survey
-status: open
+status: closed
 labels:
 - survey
 - detection
@@ -44,7 +44,7 @@ acceptance_criteria:
     a JSON file with a single top-level object. DELIVERABLE: the corpus + manifests
     under a test fixtures tree. verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-02
   description: |
     DETECTOR TRAIT + >=2 IMPLEMENTATIONS. Define `Detector` in dovetail-core
@@ -54,7 +54,7 @@ acceptance_criteria:
     structure shape-heuristic with no finetype, for the head-to-head. verifies:
     capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-03
   description: |
     EVAL HARNESS. Run each Detector over the fixture corpus and report a
@@ -62,7 +62,7 @@ acceptance_criteria:
     fixtures), with a per-fixture breakdown so misses are inspectable. DELIVERABLE:
     a reproducible eval run + its results table. verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-04
   description: |
     PICK + JUSTIFY THE WINNER. From ac-03's numbers, choose the detector survey
@@ -70,7 +70,7 @@ acceptance_criteria:
     bar it must clear in ac-10. DELIVERABLE: a short decision note in the spec
     folder. verifies: capability.
   gate: true
-  checked: false
+  checked: true
   ac_type: doc
 - id: ac-05
   description: |
@@ -80,7 +80,7 @@ acceptance_criteria:
     fields where they apply. The emitted SQL is plain and reviewable, not clever —
     legibility is the output value. verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-06
   description: |
     DATA PACKAGE ASSEMBLY. survey emits a datapackage.json per surveyed file with
@@ -89,7 +89,7 @@ acceptance_criteria:
     provenance rides the standard fields (hash, bytes, format, created). verifies:
     capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-07
   description: |
     ROUND-TRIP. In the test suite, the emitted .sql runs against DuckDB and yields a
@@ -97,7 +97,7 @@ acceptance_criteria:
     DuckDB runs only here, in tests — never as survey's own load path. A mismatch
     fails the test loudly (it is the core failure mode). verifies: capability.
   gate: true
-  checked: false
+  checked: true
 - id: ac-08
   description: |
     DESCRIPTOR CONFORMANCE. Every emitted datapackage.json validates against the
@@ -105,13 +105,13 @@ acceptance_criteria:
     test suite. Custom properties (the load recipe) are present without breaking
     conformance. verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-09
   description: |
     RUNG REPORTING. For every input, survey prints which rung it chose (SQL here)
     and why, so the analyst sees the path taken. verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-10
   description: |
     DETECTION-QUALITY GATE (kill-condition guard). On the fixture corpus, the chosen
@@ -121,7 +121,7 @@ acceptance_criteria:
     trust. This is the operational form of the primary kill condition. verifies:
     capability.
   gate: true
-  checked: false
+  checked: true
 - id: ac-11
   description: |
     DUPLICATE-KEY / DUPLICATE-COLUMN POLICY SURFACED. When an input carries duplicate
@@ -129,4 +129,5 @@ acceptance_criteria:
     policy (keep-last, keep-first, collect-to-array, or rename) rather than letting a
     parser silently drop data. verifies: capability.
   gate: false
-  checked: false
+  checked: true
+closed_at: 2026-06-21T00:46:03.543217Z

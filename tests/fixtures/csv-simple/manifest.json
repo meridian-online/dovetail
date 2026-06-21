@@ -1,0 +1,9 @@
+{
+  "name": "csv-simple",
+  "file": "data.csv",
+  "format": "csv",
+  "structure": "flat-table",
+  "row_count": 3,
+  "columns": ["id", "name", "email", "signup_date"],
+  "notes": "baseline CSV with header row"
+}

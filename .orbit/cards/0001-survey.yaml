@@ -4,7 +4,7 @@ as_a: data analyst
 i_want: to point dovetail at a pile of unfamiliar files and get a clean, runnable recipe for landing each one into DuckDB
 so_that: I can ingest awkward inputs deterministically without hand-writing loaders or guessing at their structure
 goal: every supported input yields a Data Package descriptor plus an executable load (standalone .sql where possible, arcform .yaml otherwise), with the chosen path reported and why
-maturity: planned
+maturity: emerging
 scenarios:
 - name: Land a CSV via the native SQL path
   given: a plain CSV file

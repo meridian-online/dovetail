@@ -1,0 +1,9 @@
+{
+  "name": "tsv-simple",
+  "file": "data.tsv",
+  "format": "tsv",
+  "structure": "flat-table",
+  "row_count": 3,
+  "columns": ["id", "city", "population"],
+  "notes": "tab-delimited; dialect detection must pick the tab separator"
+}
