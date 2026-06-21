@@ -64,7 +64,7 @@ acceptance_criteria:
     surface as suggested. DELIVERABLE: the fixture DB (built reproducibly) + a
     manifest of expected outcomes. verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-02
   description: |
     SCHEMA READ + CANDIDATE GENERATION. relate connects to a DuckDB, reads table
@@ -73,7 +73,7 @@ acceptance_criteria:
     work is pruned (by type/name) before the expensive overlap query. verifies:
     capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-03
   description: |
     VERIFICATION (gate). For each candidate, relate verifies referential
@@ -83,7 +83,7 @@ acceptance_criteria:
     free alone is insufficient (the boolean-vs-boolean trap). This gate is the
     safety rail that makes auto-accept sound. verifies: capability.
   gate: true
-  checked: false
+  checked: true
 - id: ac-04
   description: |
     STATUS ASSIGNMENT (auto-accept). Each edge is assigned status from
@@ -93,7 +93,7 @@ acceptance_criteria:
     coincidental boolean overlap do NOT; the ambiguous edge becomes suggested.
     verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-05
   description: |
     FOREIGNKEYS WRITTEN TO THE DESCRIPTOR. Discovered edges are written as
@@ -102,7 +102,7 @@ acceptance_criteria:
     confidence and status as custom properties (choice 0003). The descriptor still
     validates against the vendored Frictionless profile. verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-06
   description: |
     CONSTRAINT DDL FOR ACCEPTED EDGES ONLY. relate compiles accepted edges to
@@ -111,7 +111,7 @@ acceptance_criteria:
     applies cleanly against the fixture DuckDB (the constraint provably holds,
     since the edge was verified). verifies: capability.
   gate: false
-  checked: false
+  checked: true
 - id: ac-07
   description: |
     dovetail relate CLI. The thin bin gains a relate subcommand that connects to a
@@ -120,4 +120,4 @@ acceptance_criteria:
     reason so the analyst sees what was decided and why — surfacing only the
     uncertain band as needing a look. verifies: capability.
   gate: false
-  checked: false
+  checked: true

@@ -9,6 +9,7 @@ pub mod datapackage;
 pub mod detect;
 pub mod emit;
 pub mod eval;
+pub mod relate;
 pub mod structure;
 pub mod survey;
 

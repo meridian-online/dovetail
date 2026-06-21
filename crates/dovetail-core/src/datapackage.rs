@@ -26,10 +26,35 @@ pub struct Field {
     pub semantic_type: Option<String>,
 }
 
+/// A Frictionless Table Schema foreign key. Shape per the spec:
+/// `{fields, reference: {resource, fields}}`. relate's evidence, confidence and
+/// status ride as namespaced custom properties (choice 0003).
+#[derive(Debug, Clone, Serialize)]
+pub struct ForeignKey {
+    pub fields: Vec<String>,
+    pub reference: ForeignKeyReference,
+    #[serde(rename = "x-dovetailStatus")]
+    pub status: String,
+    #[serde(rename = "x-dovetailConfidence")]
+    pub confidence: f64,
+    #[serde(rename = "x-dovetailEvidence")]
+    pub evidence: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ForeignKeyReference {
+    pub resource: String,
+    pub fields: Vec<String>,
+}
+
 /// A Frictionless Table Schema.
 #[derive(Debug, Clone, Serialize)]
 pub struct TableSchema {
     pub fields: Vec<Field>,
+    /// foreignKeys live INSIDE the Table Schema (Frictionless), not at package
+    /// level. Omitted when empty so survey-only descriptors stay unchanged.
+    #[serde(rename = "foreignKeys", skip_serializing_if = "Vec::is_empty")]
+    pub foreign_keys: Vec<ForeignKey>,
 }
 
 /// dovetail's load recipe, carried as a namespaced custom property on the
@@ -136,7 +161,10 @@ pub fn assemble(
     let bytes = bytes_data.len() as u64;
     let hash = sha256_hex(&bytes_data);
 
-    let schema = TableSchema { fields: det.columns.iter().map(field_of).collect() };
+    let schema = TableSchema {
+        fields: det.columns.iter().map(field_of).collect(),
+        foreign_keys: Vec::new(),
+    };
 
     let resource = Resource {
         name: resource_name.to_string(),

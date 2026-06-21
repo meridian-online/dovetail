@@ -23,15 +23,58 @@ fn main() -> ExitCode {
             }
             run_survey(&paths)
         }
+        Some("relate") => run_relate(args.collect()),
         Some(other) => {
-            eprintln!("dovetail: unknown command {other:?} (try: survey)");
+            eprintln!("dovetail: unknown command {other:?} (try: survey, relate)");
             ExitCode::from(2)
         }
         None => {
-            eprintln!("usage: dovetail survey <paths...>");
+            eprintln!("usage: dovetail <survey|relate> ...");
             ExitCode::from(2)
         }
     }
+}
+
+/// `dovetail relate <duckdb-path>` — read a loaded DuckDB, discover and verify
+/// candidate foreign keys, report accepted + to-review edges (rejected noise is
+/// suppressed), and print constraint DDL for the auto-accepted edges.
+fn run_relate(args: Vec<String>) -> ExitCode {
+    use dovetail_core::relate::{constraint_ddl, discover_path, EdgeStatus};
+    let db = match args.as_slice() {
+        [d] => d,
+        _ => {
+            eprintln!("usage: dovetail relate <duckdb-path>");
+            return ExitCode::from(2);
+        }
+    };
+    let edges = match discover_path(db) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("dovetail relate: {db}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let (mut accepted_n, mut review_n) = (0u32, 0u32);
+    for e in &edges {
+        let mark = match e.status {
+            EdgeStatus::Accepted => {
+                accepted_n += 1;
+                "ACCEPT"
+            }
+            EdgeStatus::Suggested => {
+                review_n += 1;
+                "REVIEW"
+            }
+            EdgeStatus::Rejected => continue,
+        };
+        println!("{mark}  {} -> {}  ({})", e.child.qualified(), e.parent.qualified(), e.reason);
+    }
+    eprintln!("\ndovetail relate: {accepted_n} accepted, {review_n} to review");
+    if accepted_n > 0 {
+        println!("\n{}", constraint_ddl(&edges).trim_end());
+    }
+    ExitCode::SUCCESS
 }
 
 fn run_survey(paths: &[PathBuf]) -> ExitCode {

@@ -1,0 +1,33 @@
+{
+  "description": "Expected relate outcomes for the four fixture cases. Each entry is the candidate FK edge (child.column -> parent.column) and the status relate must assign it. Edges not listed must not be auto-accepted.",
+  "expected_edges": [
+    {
+      "case": "a-holding-fk",
+      "child": "orders.customer_id",
+      "parent": "customers.id",
+      "status": "accepted",
+      "why": "child values are a subset of a unique parent key (referential integrity holds)"
+    },
+    {
+      "case": "b-orphan-near-miss",
+      "child": "shipments.order_id",
+      "parent": "orders.id",
+      "status": "rejected",
+      "why": "orphan rows: shipments.order_id=99 is not in orders.id"
+    },
+    {
+      "case": "c-coincidental-boolean",
+      "child": "widget_flags.active",
+      "parent": "gadget_flags.active",
+      "status": "rejected",
+      "why": "orphan-free but the parent is a 2-value boolean: not unique, cardinality far too low to be a key"
+    },
+    {
+      "case": "d-ambiguous",
+      "child": "products.category_id",
+      "parent": "categories.id",
+      "status": "suggested",
+      "why": "orphan-free, FK-shaped naming and decent cardinality, but the parent has a duplicate id so it is not provably unique — surface for review"
+    }
+  ]
+}
