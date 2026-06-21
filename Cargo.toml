@@ -22,3 +22,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 anyhow = "1"
 thiserror = "2"
+
+# Size-optimised release profile. The binary is dominated by statically-linked
+# bundled DuckDB (choice 0014); release already compiles DuckDB optimised without
+# debug info, and these settings trim the rest:
+#   strip   — drop debug symbols (the bulk of the debug-build size)
+#   lto     — thin cross-crate dead-code elimination on the Rust side
+#   opt-level "s" / codegen-units 1 — optimise the Rust code for size
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+strip = true
