@@ -45,4 +45,5 @@ references:
 - .orbit/choices/0009-survey-relate-seam.yaml
 - .orbit/choices/0010-relate-emit-renders.yaml
 - .orbit/choices/0014-in-process-duckdb-read-emit-to-file.yaml
-notes: []
+notes:
+- 'Known scope limits (as of spec 2026-06-21-relate-discover-verify-render): relate discovers single-column foreign keys between distinct tables only. Self-referential FKs (a column referencing its own table) and composite/multi-column keys are not discovered yet — candidates for a follow-up spec.'

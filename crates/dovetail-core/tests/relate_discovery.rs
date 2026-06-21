@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use dovetail_core::datapackage::{Field, TableSchema};
-use dovetail_core::relate::{accepted, constraint_ddl, discover, EdgeStatus};
+use dovetail_core::relate::{accepted, build_descriptor, constraint_ddl, discover, EdgeStatus};
 use serde::Deserialize;
 
 fn repo_root() -> PathBuf {
@@ -131,4 +131,35 @@ fn foreign_keys_serialize_inside_table_schema_and_conform() {
     assert_eq!(fk0["reference"]["fields"][0], "id");
     assert_eq!(fk0["x-dovetailStatus"], "accepted");
     assert!(fk0["x-dovetailEvidence"]["parentUnique"].as_bool().unwrap());
+}
+
+// ac-07 / ac-05 — the descriptor relate writes carries foreignKeys and validates
+// against the vendored Frictionless profile via the actual jsonschema validator
+// (not just serde shape), with the custom FK properties present.
+#[test]
+fn relate_descriptor_validates_against_frictionless_profile() {
+    let conn = build_fixture();
+    let edges = discover(&conn).expect("discover");
+    let descriptor = build_descriptor(&conn, &edges, "demo.duckdb").expect("descriptor");
+
+    // The orders resource carries the accepted FK inside its Table Schema.
+    let orders = descriptor["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == "orders")
+        .expect("orders resource");
+    let fks = orders["schema"]["foreignKeys"].as_array().expect("foreignKeys present");
+    assert!(fks.iter().any(|fk| fk["reference"]["resource"] == "customers"
+        && fk["x-dovetailStatus"] == "accepted"));
+
+    // Validate the whole descriptor against the vendored profile.
+    let schema_text =
+        std::fs::read_to_string(repo_root().join("vendor/frictionless/datapackage-profile.json"))
+            .unwrap();
+    let schema: serde_json::Value = serde_json::from_str(&schema_text).unwrap();
+    let validator = jsonschema::validator_for(&schema).expect("compile profile");
+    let errors: Vec<String> =
+        validator.iter_errors(&descriptor).map(|e| format!("{e} at {}", e.instance_path)).collect();
+    assert!(errors.is_empty(), "relate descriptor not conformant:\n{}", errors.join("\n"));
 }

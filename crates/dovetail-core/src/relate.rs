@@ -135,9 +135,85 @@ pub fn discover_path(path: &str) -> duckdb::Result<Vec<Edge>> {
     discover(&conn)
 }
 
+/// The result of a relate run over a DuckDB path: the discovered edges and the
+/// assembled descriptor. Keeps `duckdb` inside dovetail-core (the bin stays thin).
+pub struct RelateRun {
+    pub edges: Vec<Edge>,
+    pub descriptor: serde_json::Value,
+}
+
+/// Open a DuckDB, discover edges, and assemble the descriptor — the one call the
+/// CLI needs.
+pub fn run_path(path: &str) -> duckdb::Result<RelateRun> {
+    let conn = Connection::open(path)?;
+    let edges = discover(&conn)?;
+    let descriptor = build_descriptor(&conn, &edges, path)?;
+    Ok(RelateRun { edges, descriptor })
+}
+
 /// Accepted edges only (choice 0007) — what compiles to constraint DDL.
 pub fn accepted(edges: &[Edge]) -> Vec<&Edge> {
     edges.iter().filter(|e| e.status == EdgeStatus::Accepted).collect()
+}
+
+/// Build a Frictionless Data Package descriptor for the DuckDB's tables with the
+/// discovered foreignKeys attached inside each resource's Table Schema (ac-05 /
+/// ac-07). Non-rejected edges (accepted + suggested) are written, carrying their
+/// status; rejected coincidences are left out. This is what `dovetail relate`
+/// writes/updates — the canonical relationship-model output (choice 0003).
+pub fn build_descriptor(conn: &Connection, edges: &[Edge], source: &str) -> duckdb::Result<serde_json::Value> {
+    use serde_json::json;
+    let columns = read_columns(conn)?;
+
+    // Tables in first-seen order.
+    let mut table_order: Vec<String> = Vec::new();
+    for c in &columns {
+        if !table_order.contains(&c.col.table) {
+            table_order.push(c.col.table.clone());
+        }
+    }
+
+    let resources: Vec<serde_json::Value> = table_order
+        .iter()
+        .map(|table| {
+            let fields: Vec<serde_json::Value> = columns
+                .iter()
+                .filter(|c| &c.col.table == table)
+                .map(|c| json!({ "name": c.col.column, "type": frictionless_type(&c.ty) }))
+                .collect();
+            let fks: Vec<serde_json::Value> = edges
+                .iter()
+                .filter(|e| e.status != EdgeStatus::Rejected && &e.child.table == table)
+                .map(|e| serde_json::to_value(e.to_foreign_key()).unwrap())
+                .collect();
+            let mut schema = json!({ "fields": fields });
+            if !fks.is_empty() {
+                schema["foreignKeys"] = json!(fks);
+            }
+            json!({
+                "name": table,
+                "path": format!("{source}#{table}"),
+                "format": "duckdb",
+                "mediatype": "application/vnd.duckdb",
+                "schema": schema,
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "$schema": "https://datapackage.org/profiles/1.0/datapackage.json",
+        "resources": resources,
+    }))
+}
+
+/// Map a DuckDB column type to a coarse Frictionless field type.
+fn frictionless_type(ty: &str) -> &'static str {
+    match type_family(ty) {
+        "int" => "integer",
+        "float" => "number",
+        "bool" => "boolean",
+        _ => "string",
+    }
 }
 
 // --- Schema read (ac-02) -----------------------------------------------------

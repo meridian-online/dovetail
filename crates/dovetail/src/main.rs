@@ -39,21 +39,34 @@ fn main() -> ExitCode {
 /// candidate foreign keys, report accepted + to-review edges (rejected noise is
 /// suppressed), and print constraint DDL for the auto-accepted edges.
 fn run_relate(args: Vec<String>) -> ExitCode {
-    use dovetail_core::relate::{constraint_ddl, discover_path, EdgeStatus};
-    let db = match args.as_slice() {
-        [d] => d,
+    use dovetail_core::relate::{constraint_ddl, run_path, EdgeStatus};
+    // dovetail relate <duckdb-path> [--out <datapackage.json>]
+    let (db, out) = match args.as_slice() {
+        [d] => (d.as_str(), None),
+        [d, flag, path] if flag == "--out" => (d.as_str(), Some(path.as_str())),
         _ => {
-            eprintln!("usage: dovetail relate <duckdb-path>");
+            eprintln!("usage: dovetail relate <duckdb-path> [--out <datapackage.json>]");
             return ExitCode::from(2);
         }
     };
-    let edges = match discover_path(db) {
-        Ok(e) => e,
+    let run = match run_path(db) {
+        Ok(r) => r,
         Err(e) => {
             eprintln!("dovetail relate: {db}: {e}");
             return ExitCode::FAILURE;
         }
     };
+    let edges = run.edges;
+
+    // Write/update the Data Package descriptor with the discovered foreignKeys.
+    if let Some(out_path) = out {
+        let json = run.descriptor.to_string();
+        if let Err(e) = std::fs::write(out_path, json) {
+            eprintln!("dovetail relate: writing {out_path}: {e}");
+            return ExitCode::FAILURE;
+        }
+        eprintln!("dovetail relate: wrote descriptor → {out_path}");
+    }
 
     let (mut accepted_n, mut review_n) = (0u32, 0u32);
     for e in &edges {
