@@ -27,7 +27,7 @@ goal: |
     foreignKeys are out of scope here (they belong to relate, card 0002).
 cards:
 - 0001-survey
-status: open
+status: closed
 labels:
 - survey
 - detection
@@ -130,3 +130,4 @@ acceptance_criteria:
     parser silently drop data. verifies: capability.
   gate: false
   checked: true
+closed_at: 2026-06-21T00:46:03.543217Z

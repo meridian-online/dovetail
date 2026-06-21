@@ -1,4 +1,4 @@
-# Detection eval — 2026-06-21
+# Detection eval — unstamped
 
 Corpus: tests/fixtures (7 SQL-native fixtures)
 
