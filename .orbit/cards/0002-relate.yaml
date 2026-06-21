@@ -31,7 +31,8 @@ scenarios:
   when: I render join SQL
   then: dovetail emits join / enrichment SQL for those edges
   gate: false
-specs: []
+specs:
+- .orbit/specs/2026-06-21-relate-discover-verify-render/spec.yaml
 relations: []
 references:
 - .orbit/choices/0003-foreign-keys-as-relationship-model.yaml
