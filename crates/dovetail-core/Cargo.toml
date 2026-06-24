@@ -16,7 +16,7 @@ finetype-guided = ["dep:finetype-model"]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-finetype-core = { workspace = true }
+finetype-core = { workspace = true, features = ["embedded-taxonomy"] }
 finetype-model = { workspace = true, optional = true }
 parquet = { version = "53", default-features = false, features = ["arrow"] }
 sha2 = "0.10"
