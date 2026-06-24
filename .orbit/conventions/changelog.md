@@ -25,3 +25,10 @@ not the commit mechanics. Reference the spec or PR where it helps
 
 A release without a changelog entry is incomplete — treat a missing entry the
 same as a missing test.
+
+## Tooling
+
+The `/release` skill (`.claude/skills/release/SKILL.md`) operationalises this:
+it gates on a non-empty `[Unreleased]`, rolls it into a dated version heading,
+and publishes the section verbatim as the GitHub release notes — so the
+changelog and the release can't drift.
