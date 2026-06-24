@@ -96,7 +96,7 @@ pub struct DataPackage {
     pub resources: Vec<Resource>,
 }
 
-const DATAPACKAGE_PROFILE: &str = "https://datapackage.org/profiles/1.0/datapackage.json";
+const DATAPACKAGE_PROFILE: &str = "https://datapackage.org/profiles/2.0/datapackage.json";
 
 impl Format {
     fn mediatype(self) -> &'static str {
@@ -134,6 +134,20 @@ fn field_of(col: &Column) -> Field {
     }
 }
 
+/// The Frictionless `resource.path`. Frictionless 2.0 requires it to be
+/// relative to the directory holding the descriptor (an absolute filesystem
+/// path, `../`, `~` or `file:` are all rejected by the profile's `path`
+/// pattern). dovetail writes one descriptor per source and co-locates it with
+/// the data, so a single-file survey reduces to the basename — the flat case of
+/// the descriptor-relative rule. A multi-file package rooted above its data
+/// would carry the subpath instead; dovetail does not build that shape yet.
+fn resource_path(source: &Path) -> String {
+    source
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| source.to_string_lossy().into_owned())
+}
+
 /// Assemble a single-resource Data Package descriptor for a surveyed file.
 ///
 /// `created` is injected (rather than read from the clock) so callers control
@@ -156,7 +170,7 @@ pub fn assemble(
 
     let resource = Resource {
         name: resource_name.to_string(),
-        path: source_path.to_string_lossy().to_string(),
+        path: resource_path(source_path),
         format: det.format.token().to_string(),
         mediatype: det.format.mediatype().to_string(),
         bytes,

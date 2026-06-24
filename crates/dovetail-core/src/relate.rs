@@ -190,9 +190,15 @@ pub fn build_descriptor(conn: &Connection, edges: &[Edge], source: &str) -> duck
             if !fks.is_empty() {
                 schema["foreignKeys"] = json!(fks);
             }
+            // Relative to the descriptor (Frictionless 2.0 rejects absolute
+            // paths): the database basename plus a `#table` fragment. dovetail
+            // co-locates the descriptor with the .duckdb file it describes.
+            let db = std::path::Path::new(source)
+                .file_name()
+                .map_or_else(|| source.to_string(), |n| n.to_string_lossy().into_owned());
             json!({
                 "name": table,
-                "path": format!("{source}#{table}"),
+                "path": format!("{db}#{table}"),
                 "format": "duckdb",
                 "mediatype": "application/vnd.duckdb",
                 "schema": schema,
@@ -201,7 +207,7 @@ pub fn build_descriptor(conn: &Connection, edges: &[Edge], source: &str) -> duck
         .collect();
 
     Ok(json!({
-        "$schema": "https://datapackage.org/profiles/1.0/datapackage.json",
+        "$schema": "https://datapackage.org/profiles/2.0/datapackage.json",
         "resources": resources,
     }))
 }
