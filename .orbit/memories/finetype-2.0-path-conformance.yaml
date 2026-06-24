@@ -1,0 +1,5 @@
+key: finetype-2.0-path-conformance
+body: 'Frictionless profile 2.0 rejects absolute resource.path (pattern bans leading /, ./, ../, ~, file:). Paths MUST be relative to the descriptor''s directory, or a fully-qualified http/ftp URL. The hand-rolled 1.0 subset dovetail vendored didn''t encode this, so moving to the real 2.0 profile failed all conformance fixtures on absolute paths. Fix: emit basename — dovetail writes one descriptor per source and co-locates it, the flat case of the descriptor-relative rule (multi-file packages rooted above their data carry subpaths). Applied in datapackage.rs resource_path() and relate.rs. Lesson: a ''just flip the pin'' profile bump can hide a path-semantics change; validate emitted descriptors against the real profile, don''t trust a lenient vendored subset.'
+timestamp: 2026-06-24T04:23:06.165268Z
+labels:
+- code-investigate
