@@ -6,7 +6,7 @@ description: >-
   is the spine of the release: a release without an entry is incomplete. Git
   push + GitHub publish, so run the pre-flight gates first and stop on any
   failure.
-when_to_use: User says "release", "ship", "cut a release", "tag a version", or "publish vX.Y.Z". This is the orbit `ship` stage. Treat as a deliberate, reviewed action — never auto-fire mid-task.
+when_to_use: User says "release", "ship", "cut a release", "tag a version", or "publish vX.Y.Z". Treat as a deliberate, reviewed action — never auto-fire mid-task.
 argument-hint: "[patch | minor | major]"
 arguments: bump
 allowed-tools: Bash, Read, Edit
@@ -19,7 +19,28 @@ of the workspace. The **changelog is the centrepiece** — every release rolls
 `CHANGELOG.md`'s `[Unreleased]` section into a dated version heading, and that
 exact section becomes the GitHub release notes.
 
-Convention this skill enforces: `.orbit/conventions/changelog.md`.
+## Changelog convention (enforced here)
+
+dovetail keeps a `CHANGELOG.md` at the repo root, and **every release gets an
+entry** — treat a missing entry the same as a missing test.
+
+- **Format.** [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) over
+  [SemVer](https://semver.org/). Group changes under `Added`, `Changed`,
+  `Deprecated`, `Removed`, `Fixed`, `Security` — only the headings that apply.
+- **Product-facing entries.** Describe the capability change a user would
+  notice, not the commit mechanics. Reference the spec or PR where it helps
+  (`(#3)`, `spec 2026-06-20-…`).
+- **Accrue as work lands.** Each merged change that alters behaviour adds its
+  line under `## [Unreleased]` — don't wait for release day.
+- **On release.** Rename `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, open a
+  fresh empty `## [Unreleased]` above it, tag the commit `vX.Y.Z`, and update the
+  compare-link footer. The version is the workspace `version` in the root
+  `Cargo.toml`; bump it in the same release commit.
+
+This skill operationalises the convention: it gates on a non-empty
+`[Unreleased]`, rolls it into a dated version heading, and publishes that section
+verbatim as the GitHub release notes — so the changelog and the release can't
+drift.
 
 ## Versioning policy
 
@@ -77,8 +98,6 @@ PREV=$(git describe --tags --abbrev=0 2>/dev/null || echo "")   # "" if no tags 
 git log ${PREV:+$PREV..}HEAD --oneline --no-merges
 ```
 
-- Cross-check against specs closed since the last release (`.orbit/specs/` by
-  date) and choices recorded (`.orbit/choices/`).
 - Entries are **product-facing**: the capability a user would notice, not commit
   mechanics. Reference the spec or PR where it helps (`(#3)`, `spec 2026-06-20-…`).
 - Group under `Added` / `Changed` / `Deprecated` / `Removed` / `Fixed` /

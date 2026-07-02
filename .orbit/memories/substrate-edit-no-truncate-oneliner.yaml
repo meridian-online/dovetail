@@ -1,5 +1,0 @@
-key: substrate-edit-no-truncate-oneliner
-body: Never edit substrate/YAML files with a truncate-before-read one-liner like python -c 'open(p,"w").write(open(p).read().replace(...))'. The 'w' open truncates the file to empty BEFORE the argument expression reads it, so you write an empty string and silently corrupt the file. This emptied card 0003 + a drive.yaml in the jaq drive (commit dc7bcce), caught only because orbit spec close failed on the malformed card. Use the Edit tool, or a TWO-statement read-then-write (s=open(p).read(); ...; open(p,'w').write(s)). After any scripted substrate edit, run 'orbit verify' before committing.
-timestamp: 2026-06-21T05:02:27.832687Z
-labels:
-- code-investigate

@@ -42,12 +42,13 @@ fn detection_eval_runs_and_clears_the_bar() {
         results.push(eval_detector(&ft, &corpus, mode));
     }
 
-    // Write the reproducible eval record to the spec folder. The date is read
-    // from SOURCE_DATE_EPOCH-style override or left as a stable placeholder so
-    // the test stays deterministic; the drive stamps the real date on commit.
+    // Write the reproducible eval record to the build-output dir (target/, which
+    // is gitignored — the report is regenerated on every run). The date is read
+    // from a SOURCE_DATE_EPOCH-style override or left as a stable placeholder so
+    // the test stays deterministic.
     let date = std::env::var("DOVETAIL_EVAL_DATE").unwrap_or_else(|_| "unstamped".to_string());
     let report = render_report(&results, "tests/fixtures (7 SQL-native fixtures)", &date);
-    let out = root.join(".orbit/specs/2026-06-20-survey-detection-and-load/eval-results.md");
+    let out = root.join("target/eval-results.md");
     std::fs::write(&out, &report).expect("write eval report");
 
     // The shape-heuristic detector is the structural baseline and must clear the
