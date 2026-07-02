@@ -12,10 +12,10 @@
 //! reduced confidence rather than failing — so the eval (ac-03) and the
 //! detection-quality gate (ac-10) always have a result to score.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use finetype_model::FusionClassifier;
+use finetype_model::MultiBranchClassifier;
 
 use crate::detect::{Detector, SampledInput, ShapeHeuristicDetector};
 use crate::structure::{Column, Detection, Structure};
@@ -30,7 +30,7 @@ const COLUMN_SAMPLE_N: usize = 50;
 pub struct FinetypeGuidedDetector {
     base: ShapeHeuristicDetector,
     model_dir: Option<PathBuf>,
-    classifier: OnceLock<Option<FusionClassifier>>,
+    classifier: OnceLock<Option<MultiBranchClassifier>>,
 }
 
 impl FinetypeGuidedDetector {
@@ -52,10 +52,10 @@ impl FinetypeGuidedDetector {
 
     /// Lazily load the column classifier. Returns `None` (degraded mode) when no
     /// model dir is configured or the load fails.
-    fn classifier(&self) -> Option<&FusionClassifier> {
+    fn classifier(&self) -> Option<&MultiBranchClassifier> {
         self.classifier
             .get_or_init(|| match &self.model_dir {
-                Some(dir) if dir.exists() => load_fusion_classifier(dir).ok(),
+                Some(dir) if dir.exists() => MultiBranchClassifier::load(dir).ok(),
                 _ => None,
             })
             .as_ref()
@@ -182,35 +182,4 @@ fn json_scalar(v: &serde_json::Value) -> String {
         serde_json::Value::Null => String::new(),
         other => other.to_string(),
     }
-}
-
-/// Assemble a [`FusionClassifier`] from a model directory, mirroring finetype's
-/// own fusion-manifest layout (`value_model` / `mb_model` / `head` sub-dirs).
-fn load_fusion_classifier(model: &Path) -> Result<FusionClassifier, String> {
-    let manifest_path = model.join("fusion_manifest.json");
-    let manifest: serde_json::Value = std::fs::read(&manifest_path)
-        .map_err(|e| format!("read {manifest_path:?}: {e}"))
-        .and_then(|b| serde_json::from_slice(&b).map_err(|e| format!("parse manifest: {e}")))?;
-
-    let resolve = |key: &str| -> Result<PathBuf, String> {
-        let p = manifest[key]
-            .as_str()
-            .ok_or_else(|| format!("fusion_manifest missing string field {key:?}"))?;
-        let pb = PathBuf::from(p);
-        Ok(if pb.is_absolute() { pb } else { model.join(pb) })
-    };
-
-    let value_dir = resolve("value_model")?;
-    let mb_dir = resolve("mb_model")?;
-    let head_dir = resolve("head")?;
-    let sample_n = manifest["sample_n"].as_u64().unwrap_or(32) as usize;
-
-    let value_clf = finetype_model::CharClassifier::load(&value_dir)
-        .map_err(|e| format!("load value model: {e}"))?;
-    let mb = finetype_model::MultiBranchClassifier::load(&mb_dir)
-        .map_err(|e| format!("load multi-branch model: {e}"))?;
-    let (head, head_labels) =
-        finetype_model::FusionHead::load(&head_dir).map_err(|e| format!("load head: {e}"))?;
-    FusionClassifier::new(value_clf, mb, head, head_labels, sample_n)
-        .map_err(|e| format!("assemble fusion classifier: {e}"))
 }
