@@ -9,12 +9,15 @@ license = "MIT"
 repository = "https://github.com/meridian-online/dovetail"
 
 [workspace.dependencies]
-# Sibling meridian crates — path dependencies (choice 0012: finetype as an
-# in-process library dependency of dovetail-core). finetype-core carries the
-# light structure/schema primitives; finetype-model carries the candle-backed
-# column classifier used by the finetype-guided detector.
-finetype-core = { path = "../finetype/crates/finetype-core" }
-finetype-model = { path = "../finetype/crates/finetype-model" }
+# Sibling meridian crates (choice 0012: finetype as an in-process library
+# dependency of dovetail-core). finetype-core carries the light structure/schema
+# primitives; finetype-model carries the candle-backed column classifier used by
+# the finetype-guided detector. Pinned to the finetype v0.6.53 git tag — durable
+# and CI-resolvable (public repo), reproducible via the committed Cargo.lock, and
+# carrying the git-tracked labels/ dir that the embedded-taxonomy feature needs
+# (labels/ is excluded from the crates.io tarball, so a version pin can't build).
+finetype-core = { git = "https://github.com/meridian-online/finetype", tag = "v0.6.53" }
+finetype-model = { git = "https://github.com/meridian-online/finetype", tag = "v0.6.53" }
 
 serde = { version = "1", features = ["derive"] }
 # preserve_order keeps JSON object keys in document order — column order is a

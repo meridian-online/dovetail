@@ -12,10 +12,10 @@
 //! reduced confidence rather than failing — so the eval (ac-03) and the
 //! detection-quality gate (ac-10) always have a result to score.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use finetype_model::FusionClassifier;
+use finetype_model::MultiBranchClassifier;
 
 use crate::detect::{Detector, SampledInput, ShapeHeuristicDetector};
 use crate::structure::{Column, Detection, Structure};
@@ -30,7 +30,7 @@ const COLUMN_SAMPLE_N: usize = 50;
 pub struct FinetypeGuidedDetector {
     base: ShapeHeuristicDetector,
     model_dir: Option<PathBuf>,
-    classifier: OnceLock<Option<FusionClassifier>>,
+    classifier: OnceLock<Option<MultiBranchClassifier>>,
 }
 
 impl FinetypeGuidedDetector {
@@ -52,22 +52,34 @@ impl FinetypeGuidedDetector {
 
     /// Lazily load the column classifier. Returns `None` (degraded mode) when no
     /// model dir is configured or the load fails.
-    fn classifier(&self) -> Option<&FusionClassifier> {
+    fn classifier(&self) -> Option<&MultiBranchClassifier> {
         self.classifier
             .get_or_init(|| match &self.model_dir {
-                Some(dir) if dir.exists() => load_fusion_classifier(dir).ok(),
+                Some(dir) if dir.exists() => MultiBranchClassifier::load(dir).ok(),
                 _ => None,
             })
             .as_ref()
     }
 
     /// Assign a semantic type to a column from a sample of its string values.
+    ///
+    /// The neural classifier wins when a model directory is loaded and it returns
+    /// a confident leaf. Otherwise — no model configured, or the model abstains
+    /// (`unknown`) — the deterministic, model-free typing floor
+    /// (`crate::typing`) resolves the value-conclusive types (email, delimited
+    /// ISO timestamp, UUID, …). Either way the column carries a real finetype
+    /// leaf when one is determinable, so the shipped survey never falls back to
+    /// all-string just because no model is present.
     fn type_column(&self, name: &str, values: &[String]) -> Option<String> {
-        let clf = self.classifier()?;
-        let sample: Vec<String> = values.iter().take(COLUMN_SAMPLE_N).cloned().collect();
-        clf.classify_column(&sample, name, None)
-            .ok()
-            .map(|(label, _conf)| label)
+        if let Some(clf) = self.classifier() {
+            let sample: Vec<String> = values.iter().take(COLUMN_SAMPLE_N).cloned().collect();
+            if let Ok((label, _conf)) = clf.classify_column(&sample, name, None) {
+                if label != "unknown" {
+                    return Some(label);
+                }
+            }
+        }
+        crate::typing::deterministic_semantic_type(values)
     }
 }
 
@@ -80,24 +92,26 @@ impl Detector for FinetypeGuidedDetector {
         // Structural read first — format, structure, and the column set.
         let mut det = self.base.detect(input);
 
-        // Enrich each column with a semantic type when a classifier is loaded.
-        // Column value samples come from the same parsed head the base used.
-        if self.classifier().is_some() {
-            let samples = column_value_samples(input, &det);
-            det.columns = det
-                .columns
-                .iter()
-                .map(|c| {
-                    let semantic_type = samples
-                        .get(&c.name)
-                        .and_then(|vals| self.type_column(&c.name, vals));
-                    Column { name: c.name.clone(), semantic_type }
-                })
-                .collect();
-            // A loaded classifier that agreed on structure earns full confidence.
-        } else {
-            // Degraded mode: structural read only. Knock confidence down a notch
-            // so the detection-quality gate can prefer a model-backed result.
+        // Enrich each column with a semantic type. `type_column` uses the neural
+        // classifier when a model is loaded and the deterministic typing floor
+        // otherwise, so this runs in every mode — a column carries a finetype leaf
+        // whenever one is determinable. Value samples come from the same parsed
+        // head the base structural read used.
+        let samples = column_value_samples(input, &det);
+        det.columns = det
+            .columns
+            .iter()
+            .map(|c| {
+                let semantic_type =
+                    samples.get(&c.name).and_then(|vals| self.type_column(&c.name, vals));
+                Column { name: c.name.clone(), semantic_type }
+            })
+            .collect();
+
+        if self.classifier().is_none() {
+            // No neural model: structural read plus the deterministic typing floor.
+            // Knock confidence down a notch so the head-to-head eval can still
+            // prefer a fully model-backed result where one is configured.
             det.confidence *= 0.9;
         }
         det
@@ -182,35 +196,4 @@ fn json_scalar(v: &serde_json::Value) -> String {
         serde_json::Value::Null => String::new(),
         other => other.to_string(),
     }
-}
-
-/// Assemble a [`FusionClassifier`] from a model directory, mirroring finetype's
-/// own fusion-manifest layout (`value_model` / `mb_model` / `head` sub-dirs).
-fn load_fusion_classifier(model: &Path) -> Result<FusionClassifier, String> {
-    let manifest_path = model.join("fusion_manifest.json");
-    let manifest: serde_json::Value = std::fs::read(&manifest_path)
-        .map_err(|e| format!("read {manifest_path:?}: {e}"))
-        .and_then(|b| serde_json::from_slice(&b).map_err(|e| format!("parse manifest: {e}")))?;
-
-    let resolve = |key: &str| -> Result<PathBuf, String> {
-        let p = manifest[key]
-            .as_str()
-            .ok_or_else(|| format!("fusion_manifest missing string field {key:?}"))?;
-        let pb = PathBuf::from(p);
-        Ok(if pb.is_absolute() { pb } else { model.join(pb) })
-    };
-
-    let value_dir = resolve("value_model")?;
-    let mb_dir = resolve("mb_model")?;
-    let head_dir = resolve("head")?;
-    let sample_n = manifest["sample_n"].as_u64().unwrap_or(32) as usize;
-
-    let value_clf = finetype_model::CharClassifier::load(&value_dir)
-        .map_err(|e| format!("load value model: {e}"))?;
-    let mb = finetype_model::MultiBranchClassifier::load(&mb_dir)
-        .map_err(|e| format!("load multi-branch model: {e}"))?;
-    let (head, head_labels) =
-        finetype_model::FusionHead::load(&head_dir).map_err(|e| format!("load head: {e}"))?;
-    FusionClassifier::new(value_clf, mb, head, head_labels, sample_n)
-        .map_err(|e| format!("assemble fusion classifier: {e}"))
 }

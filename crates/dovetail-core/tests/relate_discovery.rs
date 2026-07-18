@@ -118,8 +118,13 @@ fn foreign_keys_serialize_inside_table_schema_and_conform() {
 
     let schema = TableSchema {
         fields: vec![
-            Field { name: "id".into(), ty: "integer".into(), semantic_type: None },
-            Field { name: "customer_id".into(), ty: "integer".into(), semantic_type: None },
+            Field { name: "id".into(), ty: "integer".into(), format: None, semantic_type: None },
+            Field {
+                name: "customer_id".into(),
+                ty: "integer".into(),
+                format: None,
+                semantic_type: None,
+            },
         ],
         foreign_keys: fks,
     };

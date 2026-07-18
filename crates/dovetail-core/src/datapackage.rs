@@ -20,6 +20,11 @@ pub struct Field {
     pub name: String,
     #[serde(rename = "type")]
     pub ty: String,
+    /// Frictionless `format` for the type, when finetype's map supplies one
+    /// (e.g. `email` for a string, `%d/%m/%Y` for a date). Frictionless field
+    /// order is name → type → format → custom `x-`.
+    #[serde(rename = "format", skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
     /// dovetail's finetype semantic type, retained as a namespaced custom
     /// property alongside the standard `type`.
     #[serde(rename = "x-dovetailSemanticType", skip_serializing_if = "Option::is_none")]
@@ -91,7 +96,7 @@ pub struct DataPackage {
     pub resources: Vec<Resource>,
 }
 
-const DATAPACKAGE_PROFILE: &str = "https://datapackage.org/profiles/1.0/datapackage.json";
+const DATAPACKAGE_PROFILE: &str = "https://datapackage.org/profiles/2.0/datapackage.json";
 
 impl Format {
     fn mediatype(self) -> &'static str {
@@ -115,35 +120,32 @@ impl Format {
     }
 }
 
-/// Map a finetype semantic type (e.g. `identity.person.email`,
-/// `datetime.date.iso8601`) to a coarse Frictionless type. Unknown or absent
-/// types fall back to `string` — the safe, always-loadable default.
-fn frictionless_type(semantic: Option<&str>) -> String {
-    let Some(s) = semantic else { return "string".into() };
-    let head = s.split('.').next().unwrap_or("");
-    match head {
-        "datetime" => {
-            if s.contains("date") && !s.contains("datetime") {
-                "date".into()
-            } else {
-                "datetime".into()
-            }
-        }
-        "finance" | "representation" if s.contains("integer") => "integer".into(),
-        _ if s.contains("number") || s.contains("decimal") || s.contains("float") => {
-            "number".into()
-        }
-        _ if s.contains("boolean") => "boolean".into(),
-        _ => "string".into(),
+/// Build a Table Schema field from a column, reading finetype's authoritative
+/// Frictionless map (`frictionless_for`) for the `type`/`format` pair. Columns
+/// with no semantic type (the shape-heuristic detector) — and any label the map
+/// doesn't carry — fall back to `string`/no-format, the always-loadable default.
+fn field_of(col: &Column) -> Field {
+    let fx = col.semantic_type.as_deref().and_then(finetype_core::frictionless_for);
+    Field {
+        name: col.name.clone(),
+        ty: fx.as_ref().map_or_else(|| "string".into(), |f| f.ftype.clone()),
+        format: fx.and_then(|f| f.format),
+        semantic_type: col.semantic_type.clone(),
     }
 }
 
-fn field_of(col: &Column) -> Field {
-    Field {
-        name: col.name.clone(),
-        ty: frictionless_type(col.semantic_type.as_deref()),
-        semantic_type: col.semantic_type.clone(),
-    }
+/// The Frictionless `resource.path`. Frictionless 2.0 requires it to be
+/// relative to the directory holding the descriptor (an absolute filesystem
+/// path, `../`, `~` or `file:` are all rejected by the profile's `path`
+/// pattern). dovetail writes one descriptor per source and co-locates it with
+/// the data, so a single-file survey reduces to the basename — the flat case of
+/// the descriptor-relative rule. A multi-file package rooted above its data
+/// would carry the subpath instead; dovetail does not build that shape yet.
+fn resource_path(source: &Path) -> String {
+    source
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| source.to_string_lossy().into_owned())
 }
 
 /// Assemble a single-resource Data Package descriptor for a surveyed file.
@@ -168,7 +170,7 @@ pub fn assemble(
 
     let resource = Resource {
         name: resource_name.to_string(),
-        path: source_path.to_string_lossy().to_string(),
+        path: resource_path(source_path),
         format: det.format.token().to_string(),
         mediatype: det.format.mediatype().to_string(),
         bytes,

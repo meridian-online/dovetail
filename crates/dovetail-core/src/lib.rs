@@ -13,6 +13,7 @@ pub mod relate;
 pub mod structure;
 pub mod survey;
 pub mod transform;
+pub mod typing;
 
 pub use detect::{Detector, SampledInput, ShapeHeuristicDetector};
 pub use structure::{Column, Detection, Format, Structure};

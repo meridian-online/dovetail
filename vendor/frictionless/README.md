@@ -1,25 +1,28 @@
 # Vendored Frictionless profiles
 
-`datapackage-profile.json` is a self-contained JSON Schema (draft-07) encoding
-the load-bearing conformance rules of the Frictionless **Data Package**, **Data
-Resource**, and **Table Schema** specs, derived directly from the upstream
-dictionary at `frictionlessdata/datapackage` (`profiles/dictionary/*.yaml`).
+`datapackage-profile.json` is the self-contained **Frictionless Data Package
+2.0** profile — a ref-free JSON Schema (draft-07) covering the Data Package,
+Data Resource, and Table Schema specs in one file.
 
-Why derived rather than copied: upstream ships the profiles as `$ref` pointers
-into a `dictionary.json` that is *generated* from the YAML by their
-`scripts/generate.ts` (a node/astro build). Rather than vendor that toolchain,
-this file inlines the relevant definitions into one ref-free schema the
-`jsonschema` crate can validate against directly.
+Source: vendored verbatim from FineType (`finetype/vendor/frictionless/
+datapackage-profile.json`). dovetail, FineType, and arcform share this one
+profile so conformance is checked against an identical schema across the
+meridian crates — re-vendor from the same upstream file, never hand-roll.
 
-Scope captured (the rules dovetail's emitted descriptors must satisfy):
+Why vendored rather than `$ref`'d: upstream ships the 2.0 profiles as `$ref`
+pointers into a generated `dictionary.json`, which is not resolvable standalone.
+FineType inlines those definitions into one ref-free schema the `jsonschema`
+crate validates against directly.
+
+Conformance scope (ac-08 — every emitted `datapackage.json` must satisfy it):
 
 - **Data Package** — `resources` required; an array of ≥1 resource.
 - **Data Resource** — `name` required, plus one of `path` / `data`.
-- **Table Schema** — `fields` required; each field is an object with a `name`
-  and a Frictionless `type`.
-- Custom properties (e.g. `x-dovetailLoadRecipe`) are permitted — the upstream
-  profiles do not set `additionalProperties: false`.
+- **Table Schema** — `fields` required; each field carries a `name`, a
+  Frictionless `type`, and an optional `format`.
+- Custom properties (`x-dovetailLoadRecipe`, `x-dovetailSemanticType`, …) are
+  permitted — the profile does not set `additionalProperties: false`.
 
-A full-profile validation against the upstream-generated `dictionary.json` is a
-follow-up hardening (see the eval/conformance memo). For the MVP this focused
-schema is what every emitted `datapackage.json` is checked against (ac-08).
+To update: copy FineType's vendored file over this one, bump the
+`DATAPACKAGE_PROFILE` pins (`datapackage.rs`, `relate.rs`), and re-run
+`cargo test -p dovetail-core`.
