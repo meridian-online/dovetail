@@ -12,9 +12,11 @@ repository = "https://github.com/meridian-online/dovetail"
 # Sibling meridian crates — path dependencies (choice 0012: finetype as an
 # in-process library dependency of dovetail-core). finetype-core carries the
 # light structure/schema primitives; finetype-model carries the candle-backed
-# column classifier used by the finetype-guided detector.
-finetype-core = { path = "../finetype/crates/finetype-core" }
-finetype-model = { path = "../finetype/crates/finetype-model" }
+# column classifier used by the finetype-guided detector. Pinned to the
+# committed finetype 0.6.53 release (a clean, detached checkout) so the build
+# never picks up an in-progress working tree in the sibling finetype repo.
+finetype-core = { path = "../finetype-0653-clean/crates/finetype-core" }
+finetype-model = { path = "../finetype-0653-clean/crates/finetype-model" }
 
 serde = { version = "1", features = ["derive"] }
 # preserve_order keeps JSON object keys in document order — column order is a

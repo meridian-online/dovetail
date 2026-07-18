@@ -62,12 +62,24 @@ impl FinetypeGuidedDetector {
     }
 
     /// Assign a semantic type to a column from a sample of its string values.
+    ///
+    /// The neural classifier wins when a model directory is loaded and it returns
+    /// a confident leaf. Otherwise — no model configured, or the model abstains
+    /// (`unknown`) — the deterministic, model-free typing floor
+    /// (`crate::typing`) resolves the value-conclusive types (email, delimited
+    /// ISO timestamp, UUID, …). Either way the column carries a real finetype
+    /// leaf when one is determinable, so the shipped survey never falls back to
+    /// all-string just because no model is present.
     fn type_column(&self, name: &str, values: &[String]) -> Option<String> {
-        let clf = self.classifier()?;
-        let sample: Vec<String> = values.iter().take(COLUMN_SAMPLE_N).cloned().collect();
-        clf.classify_column(&sample, name, None)
-            .ok()
-            .map(|(label, _conf)| label)
+        if let Some(clf) = self.classifier() {
+            let sample: Vec<String> = values.iter().take(COLUMN_SAMPLE_N).cloned().collect();
+            if let Ok((label, _conf)) = clf.classify_column(&sample, name, None) {
+                if label != "unknown" {
+                    return Some(label);
+                }
+            }
+        }
+        crate::typing::deterministic_semantic_type(values)
     }
 }
 
@@ -80,24 +92,26 @@ impl Detector for FinetypeGuidedDetector {
         // Structural read first — format, structure, and the column set.
         let mut det = self.base.detect(input);
 
-        // Enrich each column with a semantic type when a classifier is loaded.
-        // Column value samples come from the same parsed head the base used.
-        if self.classifier().is_some() {
-            let samples = column_value_samples(input, &det);
-            det.columns = det
-                .columns
-                .iter()
-                .map(|c| {
-                    let semantic_type = samples
-                        .get(&c.name)
-                        .and_then(|vals| self.type_column(&c.name, vals));
-                    Column { name: c.name.clone(), semantic_type }
-                })
-                .collect();
-            // A loaded classifier that agreed on structure earns full confidence.
-        } else {
-            // Degraded mode: structural read only. Knock confidence down a notch
-            // so the detection-quality gate can prefer a model-backed result.
+        // Enrich each column with a semantic type. `type_column` uses the neural
+        // classifier when a model is loaded and the deterministic typing floor
+        // otherwise, so this runs in every mode — a column carries a finetype leaf
+        // whenever one is determinable. Value samples come from the same parsed
+        // head the base structural read used.
+        let samples = column_value_samples(input, &det);
+        det.columns = det
+            .columns
+            .iter()
+            .map(|c| {
+                let semantic_type =
+                    samples.get(&c.name).and_then(|vals| self.type_column(&c.name, vals));
+                Column { name: c.name.clone(), semantic_type }
+            })
+            .collect();
+
+        if self.classifier().is_none() {
+            // No neural model: structural read plus the deterministic typing floor.
+            // Knock confidence down a notch so the head-to-head eval can still
+            // prefer a fully model-backed result where one is configured.
             det.confidence *= 0.9;
         }
         det

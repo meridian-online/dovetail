@@ -50,6 +50,45 @@ fn assembles_a_conformant_resource_per_fixture() {
     }
 }
 
+// The survey path types fields with finetype: surveying via the SAME detector
+// the shipped CLI uses (`FinetypeGuidedDetector::from_env()`), the assembled
+// descriptor carries semantic types — model-free, from finetype's deterministic
+// typing floor — so a normal survey no longer emits all-string schemas.
+#[cfg(feature = "finetype-guided")]
+#[test]
+fn survey_descriptor_carries_finetype_semantic_types() {
+    use dovetail_core::FinetypeGuidedDetector;
+
+    let dir = std::env::temp_dir().join("dovetail-survey-typing");
+    std::fs::create_dir_all(&dir).unwrap();
+    let csv = dir.join("signups.csv");
+    std::fs::write(
+        &csv,
+        "id,email,opened_at\n\
+         1,ada@example.com,2024-01-15T14:30:00Z\n\
+         2,grace@navy.mil,2024-02-20T09:00:00Z\n\
+         3,alan@bletchley.uk,2024-03-01T18:45:00Z\n",
+    )
+    .unwrap();
+
+    // The detector the shipped `dovetail survey` runs (no model dir → the
+    // deterministic typing floor).
+    let det = FinetypeGuidedDetector::from_env().detect(&SampledInput::from_path(&csv).unwrap());
+    let dp = assemble(&det, &csv, "signups", Some("signups.sql"), None).unwrap();
+
+    let fields = &dp.resources[0].schema.fields;
+    let email = fields.iter().find(|f| f.name == "email").expect("email field");
+    assert_eq!(email.ty, "string");
+    assert_eq!(email.format.as_deref(), Some("email"));
+    assert_eq!(email.semantic_type.as_deref(), Some("identity.person.email"));
+
+    let opened = fields.iter().find(|f| f.name == "opened_at").expect("opened_at field");
+    assert_eq!(opened.ty, "datetime", "ISO timestamp must type as datetime, not string");
+    assert!(opened.semantic_type.as_deref().unwrap().starts_with("datetime."));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn fixture_format_token(name: &str) -> &'static str {
     match name {
         "tsv-simple" => "tsv",

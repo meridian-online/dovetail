@@ -9,6 +9,15 @@ repository.workspace = true
 name = "dovetail"
 path = "src/main.rs"
 
+[features]
+# The shipped CLI is the full survey: `finetype-guided` on by default wires the
+# finetype-backed typer (semantic field types) into `dovetail survey`. Build with
+# `--no-default-features` for a fast structural-only iteration binary that skips
+# the candle ML stack and falls back to the shape-heuristic detector.
+default = ["finetype-guided"]
+finetype-guided = ["dovetail-core/finetype-guided"]
+
 [dependencies]
 dovetail-core = { path = "../dovetail-core", default-features = false }
 anyhow = { workspace = true }
+serde_json = { workspace = true }

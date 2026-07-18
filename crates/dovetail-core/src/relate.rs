@@ -156,11 +156,28 @@ pub fn accepted(edges: &[Edge]) -> Vec<&Edge> {
     edges.iter().filter(|e| e.status == EdgeStatus::Accepted).collect()
 }
 
-/// Build a Frictionless Data Package descriptor for the DuckDB's tables with the
-/// discovered foreignKeys attached inside each resource's Table Schema (ac-05 /
-/// ac-07). Non-rejected edges (accepted + suggested) are written, carrying their
-/// status; rejected coincidences are left out. This is what `dovetail relate`
-/// writes/updates — the canonical relationship-model output (choice 0003).
+/// How many non-null values per column relate samples from the data to ask
+/// finetype for a semantic type. Enough for the deterministic value-only typer to
+/// reach its ≥90%-of-sample agreement bar without scanning whole columns.
+const FIELD_SAMPLE_N: usize = 100;
+
+/// Build a Frictionless Data Package descriptor for the DuckDB's tables — the one
+/// self-assembling artifact that carries BOTH halves of the model: every field is
+/// typed with a finetype semantic type (not the coarse SQL family), and the
+/// discovered foreignKeys ride inside each resource's Table Schema with their
+/// evidence + confidence (ac-05 / ac-07). Non-rejected edges (accepted +
+/// suggested) are written, carrying their status; rejected coincidences are left
+/// out. This is what `dovetail relate` writes/updates — the canonical
+/// relationship-model output (choice 0003), now semantically typed.
+///
+/// Field typing samples each column's values (as text) and runs finetype's
+/// deterministic, model-free typer over them; a resolved leaf maps through
+/// `finetype_core::frictionless_for` to the authoritative Frictionless
+/// `{type, format}` and is carried as `x-dovetailSemanticType`. Columns finetype
+/// cannot conclusively type fall back to the DuckDB SQL type family — so a plain
+/// integer stays `integer`, an email becomes `string`/`email`, an ISO timestamp
+/// becomes `datetime`. Field shape matches survey's descriptor exactly
+/// (`datapackage::Field`), so the two flows self-assemble into one format.
 pub fn build_descriptor(conn: &Connection, edges: &[Edge], source: &str) -> duckdb::Result<serde_json::Value> {
     use serde_json::json;
     let columns = read_columns(conn)?;
@@ -173,14 +190,13 @@ pub fn build_descriptor(conn: &Connection, edges: &[Edge], source: &str) -> duck
         }
     }
 
-    let resources: Vec<serde_json::Value> = table_order
-        .iter()
-        .map(|table| {
-            let fields: Vec<serde_json::Value> = columns
-                .iter()
-                .filter(|c| &c.col.table == table)
-                .map(|c| json!({ "name": c.col.column, "type": frictionless_type(&c.ty) }))
-                .collect();
+    let mut resources: Vec<serde_json::Value> = Vec::with_capacity(table_order.len());
+    for table in &table_order {
+            let mut fields: Vec<serde_json::Value> = Vec::new();
+            for c in columns.iter().filter(|c| &c.col.table == table) {
+                let field = typed_field(conn, &c.col.table, &c.col.column, &c.ty)?;
+                fields.push(serde_json::to_value(&field).expect("Field serializes"));
+            }
             let fks: Vec<serde_json::Value> = edges
                 .iter()
                 .filter(|e| e.status != EdgeStatus::Rejected && &e.child.table == table)
@@ -196,15 +212,14 @@ pub fn build_descriptor(conn: &Connection, edges: &[Edge], source: &str) -> duck
             let db = std::path::Path::new(source)
                 .file_name()
                 .map_or_else(|| source.to_string(), |n| n.to_string_lossy().into_owned());
-            json!({
+            resources.push(json!({
                 "name": table,
                 "path": format!("{db}#{table}"),
                 "format": "duckdb",
                 "mediatype": "application/vnd.duckdb",
                 "schema": schema,
-            })
-        })
-        .collect();
+            }));
+    }
 
     Ok(json!({
         "$schema": "https://datapackage.org/profiles/2.0/datapackage.json",
@@ -212,7 +227,60 @@ pub fn build_descriptor(conn: &Connection, edges: &[Edge], source: &str) -> duck
     }))
 }
 
-/// Map a DuckDB column type to a coarse Frictionless field type.
+/// Build a typed Table Schema field for a DuckDB column. finetype's deterministic
+/// value-only typer is asked first: a resolved leaf maps through
+/// `finetype_core::frictionless_for` to the authoritative Frictionless
+/// `{type, format}` and is recorded as the field's semantic type. A column
+/// finetype cannot conclusively type falls back to the DuckDB SQL type family.
+fn typed_field(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    sql_ty: &str,
+) -> duckdb::Result<crate::datapackage::Field> {
+    use crate::datapackage::Field;
+
+    let sample = sample_column_values(conn, table, column, FIELD_SAMPLE_N)?;
+    let semantic = crate::typing::deterministic_semantic_type(&sample);
+    let fx = semantic.as_deref().and_then(finetype_core::frictionless_for);
+
+    Ok(match fx {
+        Some(fx) => Field {
+            name: column.to_string(),
+            ty: fx.ftype,
+            format: fx.format,
+            semantic_type: semantic,
+        },
+        None => Field {
+            name: column.to_string(),
+            ty: frictionless_type(sql_ty).to_string(),
+            format: None,
+            semantic_type: None,
+        },
+    })
+}
+
+/// Sample up to `n` non-null values from a column, rendered as text (the form
+/// finetype's typer reads). CAST-to-VARCHAR keeps every DuckDB scalar type
+/// legible to the value-only classifier.
+fn sample_column_values(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    n: usize,
+) -> duckdb::Result<Vec<String>> {
+    let sql = format!(
+        "SELECT CAST({col} AS VARCHAR) FROM {tbl} WHERE {col} IS NOT NULL LIMIT {n}",
+        col = quote(column),
+        tbl = quote(table),
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    rows.collect()
+}
+
+/// Map a DuckDB column type to a coarse Frictionless field type — the fallback
+/// when finetype cannot conclusively type a column from its values.
 fn frictionless_type(ty: &str) -> &'static str {
     match type_family(ty) {
         "int" => "integer",

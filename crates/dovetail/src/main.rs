@@ -11,6 +11,10 @@ use std::process::ExitCode;
 use dovetail_core::emit::DuplicatePolicy;
 use dovetail_core::survey::{survey_file, Outcome};
 use dovetail_core::transform::{run_jaq, JAQ_CORE_VERSION};
+
+#[cfg(feature = "finetype-guided")]
+use dovetail_core::FinetypeGuidedDetector;
+#[cfg(not(feature = "finetype-guided"))]
 use dovetail_core::ShapeHeuristicDetector;
 
 const HELP: &str = "\
@@ -220,9 +224,15 @@ fn run_jaq_cmd(args: Vec<String>) -> ExitCode {
 }
 
 fn run_survey(paths: &[PathBuf]) -> ExitCode {
-    // The MVP CLI uses the shape-heuristic structural detector. The canonical
-    // detector (ac-04) is finetype-guided, which degrades to exactly this when no
-    // model dir is configured — so structure results are identical here.
+    // The shipped CLI surveys with the finetype-guided detector: it types each
+    // column with the neural classifier when `DOVETAIL_FINETYPE_MODEL_DIR` is
+    // configured, and with finetype's deterministic value-only typing floor
+    // otherwise — so emitted descriptors carry semantic field types either way.
+    // A `--no-default-features` build drops the ML stack and surveys structure
+    // only via the shape-heuristic detector.
+    #[cfg(feature = "finetype-guided")]
+    let detector = FinetypeGuidedDetector::from_env();
+    #[cfg(not(feature = "finetype-guided"))]
     let detector = ShapeHeuristicDetector::new();
     let mut had_error = false;
 
@@ -230,8 +240,15 @@ fn run_survey(paths: &[PathBuf]) -> ExitCode {
         match survey_file(path, &detector, DuplicatePolicy::default(), None) {
             Ok(report) => {
                 print!("{}", report.render());
-                if let Outcome::Emitted { sql, .. } = &report.outcome {
+                if let Outcome::Emitted { sql, descriptor, .. } = &report.outcome {
                     println!("{sql}");
+                    // The Data Package descriptor the survey assembled: its Table
+                    // Schema carries the finetype semantic types the guided typer
+                    // assigned each column (survey's half of the model).
+                    match serde_json::to_string_pretty(descriptor) {
+                        Ok(json) => println!("\n-- datapackage.json\n{json}"),
+                        Err(e) => eprintln!("dovetail survey: descriptor serialization: {e}"),
+                    }
                 }
             }
             Err(e) => {
