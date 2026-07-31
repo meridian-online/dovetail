@@ -10,6 +10,14 @@
 -- Values are synthetic, generated to satisfy ISO 17442 (LEI, ISO 7064 mod
 -- 97-10) and ISO 6166 (ISIN, Luhn) — the check digits are real, the entities
 -- are not. Expected outcomes: identifier-keys.manifest.json.
+--
+-- NOTE — every LEI here begins with four DIGITS, which is narrower than
+-- reality. ISO 17442 makes characters 1-4 an alphanumeric LOU prefix, and a
+-- great many real LEIs begin with letters; finetype's validation pattern
+-- requires digits, so a letter-prefixed LEI does not validate and a real LEI
+-- column types as nothing. See
+-- `typing::tests::letter_prefixed_leis_do_not_resolve_upstream_pattern_defect`,
+-- which pins that limitation. When it reddens, widen these values.
 
 -- (a) RAW-NAMED KEYS -> accepted, with NO rename.
 --     link.lei  ⊆ entity_registry.lei   (unique parent, 0 orphans)

@@ -32,18 +32,18 @@ impl ColumnRef {
 /// Evidence gathered for a candidate edge (child → parent).
 #[derive(Debug, Clone)]
 pub struct Evidence {
-    /// Name-similarity signal in [0,1] (FK-style naming, column equality).
+    /// Name-similarity signal in `[0,1]` (FK-style naming, column equality).
     pub name_similarity: f64,
-    /// Type-agreement signal in [0,1]: 1.0 when child and parent carry the SAME
+    /// Type-agreement signal in `[0,1]`: 1.0 when child and parent carry the SAME
     /// allowlisted finetype identifier leaf. Its own term, deliberately not
     /// folded into `name_similarity` — the two measure different things, and a
     /// term whose name lies about what it measures is how a score stops being
     /// auditable. The confidence formula takes `max` of the two, so spelling and
     /// typing can each carry an edge on their own and neither can veto the other.
     pub semantic_similarity: f64,
-    /// Fraction of the child's distinct values present in the parent, [0,1].
+    /// Fraction of the child's distinct values present in the parent, `[0,1]`.
     pub value_overlap: f64,
-    /// How key-like the parent is: id-shaped name + distinct ratio, [0,1].
+    /// How key-like the parent is: id-shaped name + distinct ratio, `[0,1]`.
     pub parent_key_likeness: f64,
     /// The finetype leaf resolved for the child column this run, if any.
     pub child_semantic_type: Option<String>,
@@ -653,7 +653,7 @@ fn key_signal(col: &str, leaf: Option<&str>) -> f64 {
     }
 }
 
-/// Type-agreement between a candidate's two columns, [0,1].
+/// Type-agreement between a candidate's two columns, `[0,1]`.
 ///
 /// 1.0 when both resolve to the SAME allowlisted identifier leaf. This is the
 /// term that makes the fix generalise: a parent-side floor alone rescues a pair
@@ -688,7 +688,7 @@ fn semantic_mismatch(child_leaf: Option<&str>, parent_leaf: Option<&str>) -> boo
     }
 }
 
-/// Name-similarity signal for a candidate (child → parent), [0,1]. Rewards the
+/// Name-similarity signal for a candidate (child → parent), `[0,1]`. Rewards the
 /// FK convention `child.<parent_singular>_id` and exact column-name equality.
 fn name_similarity(child: &ColumnRef, parent: &ColumnRef) -> f64 {
     let cc = child.column.to_ascii_lowercase();

@@ -68,7 +68,7 @@ pub struct Detection {
     pub format: Format,
     pub structure: Structure,
     pub columns: Vec<Column>,
-    /// Detector confidence in [0,1]. The detection-quality gate (ac-10) routes
+    /// Detector confidence in `[0,1]`. The detection-quality gate (ac-10) routes
     /// inputs below threshold to suggest-and-confirm.
     pub confidence: f32,
     /// Duplicate column names observed, if any. Survey surfaces an explicit

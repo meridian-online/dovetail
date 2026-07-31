@@ -268,6 +268,52 @@ mod tests {
         }
     }
 
+    /// **Known limitation, pinned so it cannot be forgotten.**
+    ///
+    /// finetype's LEI validation pattern is `^[0-9]{4}[A-Z0-9]{14}[0-9]{2}$` and
+    /// its description reads "4-digit LOU prefix". ISO 17442 makes characters
+    /// 1–4 the LOU prefix, which is **alphanumeric** — a great many real LEIs
+    /// begin with letters. Measured against 400 LEIs from a live registry slice:
+    /// **400 of 400 pass finetype's own ISO 7064 check digits; 131 (32.8%) match
+    /// its pattern.** A real LEI column therefore sits far below the 90%
+    /// agreement bar and types as nothing at all, so the identifier probe cannot
+    /// reach it and relate scores the column on spelling alone.
+    ///
+    /// dovetail deliberately does **not** patch around this. The taxonomy is
+    /// finetype's to define, and a pattern override here would be a second
+    /// source of truth about what an LEI is — drifting against the one that
+    /// already exists, in a repo that consumes finetype as a pinned dependency.
+    ///
+    /// The values below carry valid ISO 7064 check digits and letter LOU
+    /// prefixes. **When this test reddens, the upstream pattern has been fixed**
+    /// — at which point widen `identifier-keys.build.sql`, whose LEIs are all
+    /// digit-prefixed today precisely because that is all finetype accepts.
+    #[test]
+    fn letter_prefixed_leis_do_not_resolve_upstream_pattern_defect() {
+        let real_shaped = s(&[
+            "XA7TGNO0H4AJ34N48G95",
+            "IQTSPMI222PTMTCVH081",
+            "VRMB7XBEVMA3R4300091",
+            "SZ3TGTSWMARXSQQ2JH31",
+        ]);
+        let lei = finetype_core::checksum::resolve("lei").expect("the lei checksum exists");
+        for v in &real_shaped {
+            assert!(lei(v), "{v} must carry valid ISO 7064 check digits for this test to mean anything");
+            assert!(
+                !finetype_core::validate_value_for_label(v, "finance.securities.lei", taxonomy())
+                    .expect("lei leaf exists")
+                    .is_valid,
+                "UPSTREAM FIXED: {v} now matches finetype's LEI pattern. Delete this test and \
+                 widen the identifier-keys fixture to letter-prefixed LEIs."
+            );
+        }
+        assert_eq!(
+            deterministic_semantic_type(&real_shaped),
+            None,
+            "a column of genuinely-shaped LEIs types as nothing while the pattern is wrong"
+        );
+    }
+
     /// A sample that is only *mostly* LEIs falls below finetype's agreement bar.
     /// 3 of 6 valid is 50%, well under 90%.
     #[test]

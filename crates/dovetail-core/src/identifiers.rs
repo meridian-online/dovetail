@@ -9,7 +9,7 @@
 //! This module is the grounding: an **explicit, versioned allowlist of finetype
 //! taxonomy leaves that name a durable identifier of a thing** — the kind of
 //! value a join key holds. A column whose sample resolves to one of these leaves
-//! earns a floor on its key-likeness ([`relate::SEMANTIC_KEY_FLOOR`]) and can
+//! earns a floor on its key-likeness ([`crate::relate::SEMANTIC_KEY_FLOOR`]) and can
 //! match a differently-named column carrying the same leaf.
 //!
 //! ## It fails closed
