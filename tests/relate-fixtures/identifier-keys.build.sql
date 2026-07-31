@@ -143,7 +143,15 @@ INSERT INTO filings VALUES('927533DCS8Q8YXO8FD42','2026-03-12','AR3');
 --     disagree, so the edge is held for review with both types recorded
 --     rather than accepted silently. A different instrument universe from
 --     security_registry, so nothing else joins to it.
+--     The three LEIs are inserted FIRST, so any sample SHORTER than the
+--     column types this as LEI and the full sample types it as ISIN. That
+--     is deliberate: it is the one column in the corpus whose type depends
+--     on the sample size, so a descriptor that re-typed independently would
+--     visibly contradict the gate about it.
 CREATE TABLE instrument_ref (security_ref VARCHAR);
+INSERT INTO instrument_ref VALUES('11718Q2LSQVZVA3FBS22');
+INSERT INTO instrument_ref VALUES('6617OA3ZNV2ROLK06828');
+INSERT INTO instrument_ref VALUES('3824OGHNXJA08018UL71');
 INSERT INTO instrument_ref VALUES('FRGVYEXY2K71');
 INSERT INTO instrument_ref VALUES('JPMCH8OENZI5');
 INSERT INTO instrument_ref VALUES('US4VLX2ULHX7');
@@ -174,9 +182,6 @@ INSERT INTO instrument_ref VALUES('JPO5XE92QXQ1');
 INSERT INTO instrument_ref VALUES('USRSXW7ZY2O4');
 INSERT INTO instrument_ref VALUES('GBQMLG2SHZJ7');
 INSERT INTO instrument_ref VALUES('FRVMDHI00UU3');
-INSERT INTO instrument_ref VALUES('11718Q2LSQVZVA3FBS22');
-INSERT INTO instrument_ref VALUES('6617OA3ZNV2ROLK06828');
-INSERT INTO instrument_ref VALUES('3824OGHNXJA08018UL71');
 
 CREATE TABLE mixed_ref (security_ref VARCHAR);
 INSERT INTO mixed_ref VALUES('11718Q2LSQVZVA3FBS22');

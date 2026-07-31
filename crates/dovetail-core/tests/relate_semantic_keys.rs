@@ -286,7 +286,26 @@ fn the_descriptor_and_the_gate_agree_about_every_column() {
         disagreements.join("\n")
     );
 
-    // And the typing is doing something: at least the identifier columns resolved.
+    // The discriminating column: `instrument_ref.security_ref` opens with three
+    // LEIs and continues with thirty ISINs, so its type DEPENDS on how much of
+    // it you look at. A descriptor that sampled the column independently — at
+    // any smaller size — would publish LEI while the gate scored ISIN. This
+    // assertion is what makes the agreement above evidence rather than a
+    // coincidence of a fixture where every column types the same either way.
+    let scrutinised =
+        published.get(&("instrument_ref".to_string(), "security_ref".to_string())).unwrap();
+    assert_eq!(
+        scrutinised.as_deref(),
+        Some("finance.securities.isin"),
+        "the sample-size-sensitive column must carry the full-sample type"
+    );
+    assert!(
+        run.edges.iter().any(|e| e.parent.qualified() == "instrument_ref.security_ref"
+            && e.evidence.parent_semantic_type.as_deref() == Some("finance.securities.isin")),
+        "the gate must have scored the same column on the same type"
+    );
+
+    // And the typing is doing something: the identifier columns resolved.
     assert!(
         published
             .iter()
