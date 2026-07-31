@@ -50,6 +50,11 @@
 //!   problem as `increment`. **`ulid`** is excluded by finetype's own fast path
 //!   for over-firing on short generic shapes; this list defers to that
 //!   judgement rather than second-guessing it.
+//! - **`geography.transportation.iso6346`** — checksum-anchored and otherwise
+//!   admissible, but four of its five taxonomy samples fail its own mod-11 check
+//!   digit, leaving one worked example to test exclusivity against. A shipping
+//!   container code is also not a join key anywhere in this product's reach.
+//!   Excluded until the samples can substantiate it.
 //!
 //! ## Versioning
 //!
@@ -76,7 +81,6 @@ pub const IDENTIFIER_LEAVES: &[&str] = &[
     "finance.securities.isin",          // ISO 6166 mod-10
     "finance.securities.lei",           // ISO 17442, ISO 7064 mod-97-10
     "finance.securities.sedol",         // weighted mod-10
-    "geography.transportation.iso6346", // container code, mod-11
     "identity.academic.orcid",          // ISO 7064 mod-11-2
     "identity.commerce.isbn",           // ISBN-10 mod-11 / ISBN-13 mod-10
     "identity.commerce.issn",           // mod-11
@@ -142,6 +146,25 @@ mod tests {
             .collect()
     }
 
+    /// A leaf's own taxonomy samples, filtered to the ones that actually pass its
+    /// own check digits.
+    ///
+    /// The filter is not a convenience. Several checksum-bearing leaves ship
+    /// *invalid* worked examples — the ISBN-10 `0-13-110362-9`, the ORCID
+    /// `0000-0003-1234-5678`, two of four ABNs, one of three NPIs. Testing the
+    /// probe against a sample set that is only 67% valid would measure
+    /// finetype's sample hygiene, not this allowlist's exclusivity, and would
+    /// redden here on an upstream change dovetail does not control.
+    fn valid_samples_of(leaf: &str) -> Vec<String> {
+        let tax = taxonomy();
+        let checksum =
+            tax.get(leaf).and_then(|d| d.checksum.as_deref()).and_then(finetype_core::checksum::resolve);
+        samples_of(leaf)
+            .into_iter()
+            .filter(|s| checksum.is_none_or(|verify| verify(s)))
+            .collect()
+    }
+
     /// The admission rule, enforced. A leaf on this list must be substantiated by
     /// a checksum or by finetype's own conclusive fast path — never by shape
     /// alone. Adding `representation.identifier.numeric_code` (pattern
@@ -180,9 +203,12 @@ mod tests {
     fn each_allowlisted_leaf_resolves_from_its_own_taxonomy_samples() {
         let mut misses = Vec::new();
         for leaf in IDENTIFIER_LEAVES {
-            let samples = samples_of(leaf);
-            if samples.is_empty() {
-                misses.push(format!("{leaf}: no taxonomy samples to check against"));
+            let samples = valid_samples_of(leaf);
+            if samples.len() < 2 {
+                misses.push(format!(
+                    "{leaf}: only {} substantiated sample(s) — too few to prove exclusivity",
+                    samples.len()
+                ));
                 continue;
             }
             match deterministic_semantic_type(&samples).as_deref() {
