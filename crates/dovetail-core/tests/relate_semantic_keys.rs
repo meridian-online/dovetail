@@ -24,7 +24,10 @@ use dovetail_core::relate::{
 use serde::Deserialize;
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 fn fixture_sql() -> String {
@@ -34,7 +37,8 @@ fn fixture_sql() -> String {
 
 fn build_fixture() -> duckdb::Connection {
     let conn = duckdb::Connection::open_in_memory().expect("open duckdb");
-    conn.execute_batch(&fixture_sql()).expect("build identifier-keys fixture");
+    conn.execute_batch(&fixture_sql())
+        .expect("build identifier-keys fixture");
     conn
 }
 
@@ -74,7 +78,10 @@ fn identifier_typing_moves_every_fixture_edge_to_its_expected_status() {
         edges
             .iter()
             .find(|e| e.child.qualified() == child && e.parent.qualified() == parent)
-            .map_or_else(|| "not discovered".to_string(), |e| e.status.as_str().to_string())
+            .map_or_else(
+                || "not discovered".to_string(),
+                |e| e.status.as_str().to_string(),
+            )
     };
 
     let mut misses = Vec::new();
@@ -111,7 +118,11 @@ fn the_accepted_set_is_exactly_the_manifests_and_is_empty_without_typing() {
         .map(|e| format!("{} -> {}", e.child.qualified(), e.parent.qualified()))
         .collect();
     got.sort();
-    assert_eq!(got, manifest().accepted_edges, "accepted set differs from the manifest");
+    assert_eq!(
+        got,
+        manifest().accepted_edges,
+        "accepted set differs from the manifest"
+    );
 
     let untyped = discover_with_types(&conn, &SemanticTypes::default()).unwrap();
     let untyped_accepts: Vec<String> = accepted(&untyped)
@@ -142,8 +153,15 @@ fn a_semantic_mismatch_demotes_to_suggested_and_never_prunes() {
         })
         .expect("the mismatched edge must still be present — demotion, not pruning");
 
-    assert!(edge.verification.integrity_holds(), "gate 1: {} orphans", edge.verification.orphan_count);
-    assert!(edge.verification.parent_unique, "gate 2: parent must be unique");
+    assert!(
+        edge.verification.integrity_holds(),
+        "gate 1: {} orphans",
+        edge.verification.orphan_count
+    );
+    assert!(
+        edge.verification.parent_unique,
+        "gate 2: parent must be unique"
+    );
     assert!(
         edge.confidence >= CONF_HIGH,
         "gate 3: confidence {:.3} must clear {CONF_HIGH}",
@@ -156,8 +174,14 @@ fn a_semantic_mismatch_demotes_to_suggested_and_never_prunes() {
     );
 
     assert!(edge.evidence.semantic_mismatch);
-    assert_eq!(edge.evidence.child_semantic_type.as_deref(), Some("finance.securities.lei"));
-    assert_eq!(edge.evidence.parent_semantic_type.as_deref(), Some("finance.securities.isin"));
+    assert_eq!(
+        edge.evidence.child_semantic_type.as_deref(),
+        Some("finance.securities.lei")
+    );
+    assert_eq!(
+        edge.evidence.parent_semantic_type.as_deref(),
+        Some("finance.securities.isin")
+    );
     assert_eq!(edge.evidence.semantic_similarity, 0.0);
     assert!(
         edge.reason.contains("finance.securities.lei")
@@ -182,8 +206,14 @@ fn a_semantic_mismatch_demotes_to_suggested_and_never_prunes() {
         .expect("demoted foreign key present");
     assert_eq!(fk["x-dovetailStatus"], "suggested");
     assert_eq!(fk["x-dovetailEvidence"]["semanticMismatch"], true);
-    assert_eq!(fk["x-dovetailEvidence"]["childSemanticType"], "finance.securities.lei");
-    assert_eq!(fk["x-dovetailEvidence"]["parentSemanticType"], "finance.securities.isin");
+    assert_eq!(
+        fk["x-dovetailEvidence"]["childSemanticType"],
+        "finance.securities.lei"
+    );
+    assert_eq!(
+        fk["x-dovetailEvidence"]["parentSemanticType"],
+        "finance.securities.isin"
+    );
 }
 
 /// A pair whose names share nothing and whose types share everything is scored,
@@ -208,13 +238,21 @@ fn columns_with_unrelated_names_but_one_identifier_type_are_rewarded() {
         "`entity_ref` and `lei` share no substring — if this is non-zero the test proves nothing"
     );
     assert_eq!(edge.evidence.semantic_similarity, 1.0);
-    assert_eq!(edge.evidence.child_semantic_type.as_deref(), Some("finance.securities.lei"));
-    assert_eq!(edge.evidence.parent_semantic_type.as_deref(), Some("finance.securities.lei"));
+    assert_eq!(
+        edge.evidence.child_semantic_type.as_deref(),
+        Some("finance.securities.lei")
+    );
+    assert_eq!(
+        edge.evidence.parent_semantic_type.as_deref(),
+        Some("finance.securities.lei")
+    );
 
     let untyped = discover_with_types(&conn, &SemanticTypes::default()).unwrap();
     assert!(
-        !untyped.iter().any(|e| e.child.qualified() == "filings.entity_ref"
-            && e.parent.qualified() == "entity_registry.lei"),
+        !untyped
+            .iter()
+            .any(|e| e.child.qualified() == "filings.entity_ref"
+                && e.parent.qualified() == "entity_registry.lei"),
         "without typing this pair is dropped by the candidate prune, never scored"
     );
 }
@@ -226,10 +264,37 @@ fn columns_with_unrelated_names_but_one_identifier_type_are_rewarded() {
 /// Driven through `run_path` — the whole CLI path, not a hand-assembled pair of
 /// calls — because the disagreement this rules out was an ordering bug in
 /// `run_path` itself.
+///
+/// ## How much of the wrong implementation this covers
+///
+/// The wrong implementation is a descriptor that re-types each column from a
+/// sample of its own instead of reading the run's single typing. Measured by
+/// patching `build_descriptor_with_types` to resample at size `n` and running
+/// this test at each `n`:
+///
+/// | resample `n` | descriptor publishes | this test |
+/// |---|---|---|
+/// | 3 … 50 | `finance.securities.lei` | FAILS |
+/// | 51 … 449 | nothing at all | FAILS |
+/// | 450 … 600 | `finance.securities.isin` | passes |
+///
+/// So it covers `n` = 100 — the sample size this branch replaced — and every
+/// size below it. It does not cover 450–499: that reads enough of
+/// `instrument_ref.security_ref` to reach the answer the gate reached. Closing
+/// that window needs a longer leading run of LEIs in the fixture, and the run
+/// cannot pass 50 without breaking the fixture outright — at 51 the gate's own
+/// 500-value sample is 89.8% ISIN, under the 90% agreement bar, and the column
+/// types as nothing. The run is 45, which leaves five values of margin.
+///
+/// `n` = 500 is uncoverable by construction: a resample of exactly
+/// `FIELD_SAMPLE_N` is the same sample the gate read, so it cannot disagree.
 #[test]
 fn the_descriptor_and_the_gate_agree_about_every_column() {
-    let db = std::env::temp_dir()
-        .join(format!("dovetail-identifier-keys-{}-{}.duckdb", std::process::id(), line!()));
+    let db = std::env::temp_dir().join(format!(
+        "dovetail-identifier-keys-{}-{}.duckdb",
+        std::process::id(),
+        line!()
+    ));
     let _ = std::fs::remove_file(&db);
     {
         let conn = duckdb::Connection::open(&db).expect("create db file");
@@ -264,9 +329,9 @@ fn the_descriptor_and_the_gate_agree_about_every_column() {
             (&edge.parent, &edge.evidence.parent_semantic_type),
         ] {
             let key = (col.table.clone(), col.column.clone());
-            let published = published.get(&key).unwrap_or_else(|| {
-                panic!("{} is scored but not described", col.qualified())
-            });
+            let published = published
+                .get(&key)
+                .unwrap_or_else(|| panic!("{} is scored but not described", col.qualified()));
             compared += 1;
             if published != scored_on {
                 disagreements.push(format!(
@@ -278,7 +343,10 @@ fn the_descriptor_and_the_gate_agree_about_every_column() {
     }
     let _ = std::fs::remove_file(&db);
 
-    assert!(compared > 0, "no columns compared — the run discovered nothing");
+    assert!(
+        compared > 0,
+        "no columns compared — the run discovered nothing"
+    );
     assert!(
         disagreements.is_empty(),
         "the descriptor disagrees with the gate about {} of {compared} column readings:\n{}",
@@ -286,22 +354,24 @@ fn the_descriptor_and_the_gate_agree_about_every_column() {
         disagreements.join("\n")
     );
 
-    // The discriminating column: `instrument_ref.security_ref` opens with three
-    // LEIs and continues with thirty ISINs, so its type DEPENDS on how much of
-    // it you look at. A descriptor that sampled the column independently — at
-    // any smaller size — would publish LEI while the gate scored ISIN. This
-    // assertion is what makes the agreement above evidence rather than a
-    // coincidence of a fixture where every column types the same either way.
-    let scrutinised =
-        published.get(&("instrument_ref".to_string(), "security_ref".to_string())).unwrap();
+    // The discriminating column: `instrument_ref.security_ref` opens with 45
+    // LEIs and continues with 555 ISINs, so its type DEPENDS on how much of it
+    // you look at — see the sweep in this test's doc comment. This assertion is
+    // what makes the agreement above evidence rather than a coincidence of a
+    // fixture where every column types the same either way.
+    let scrutinised = published
+        .get(&("instrument_ref".to_string(), "security_ref".to_string()))
+        .unwrap();
     assert_eq!(
         scrutinised.as_deref(),
         Some("finance.securities.isin"),
         "the sample-size-sensitive column must carry the full-sample type"
     );
     assert!(
-        run.edges.iter().any(|e| e.parent.qualified() == "instrument_ref.security_ref"
-            && e.evidence.parent_semantic_type.as_deref() == Some("finance.securities.isin")),
+        run.edges
+            .iter()
+            .any(|e| e.parent.qualified() == "instrument_ref.security_ref"
+                && e.evidence.parent_semantic_type.as_deref() == Some("finance.securities.isin")),
         "the gate must have scored the same column on the same type"
     );
 
@@ -331,7 +401,9 @@ fn raw_registry_names_auto_accept_with_no_rename() {
         .iter()
         .find(|r| r["name"] == "link")
         .expect("link resource");
-    let fks = link["schema"]["foreignKeys"].as_array().expect("foreignKeys present");
+    let fks = link["schema"]["foreignKeys"]
+        .as_array()
+        .expect("foreignKeys present");
 
     for (child_col, parent_table, leaf) in [
         ("lei", "entity_registry", "finance.securities.lei"),
@@ -341,7 +413,10 @@ fn raw_registry_names_auto_accept_with_no_rename() {
             .iter()
             .find(|fk| fk["fields"][0] == child_col && fk["reference"]["resource"] == parent_table)
             .unwrap_or_else(|| panic!("no discovered key for link.{child_col}"));
-        assert_eq!(fk["x-dovetailStatus"], "accepted", "link.{child_col} must auto-accept");
+        assert_eq!(
+            fk["x-dovetailStatus"], "accepted",
+            "link.{child_col} must auto-accept"
+        );
         let ev = &fk["x-dovetailEvidence"];
         assert_eq!(ev["childSemanticType"], leaf);
         assert_eq!(ev["parentSemanticType"], leaf);
@@ -356,4 +431,80 @@ fn raw_registry_names_auto_accept_with_no_rename() {
             dovetail_core::identifiers::ALLOWLIST_VERSION
         );
     }
+}
+
+// --- the bare-`id` veto ------------------------------------------------------
+
+/// Two tables keyed by UUID `id` must not pair, however well their values line
+/// up.
+///
+/// `semantic_similarity` returns 0.0 for a child column named exactly `id`
+/// before it looks at either type. That veto is the one judgement in this
+/// feature that typing alone cannot justify — `id` is a statement about the
+/// column's ROLE, and a UUID in `revisions.id` is the same kind of value as a
+/// UUID in `documents.id` whether or not the tables reference each other.
+///
+/// Nothing pinned it. Deleting the two-line veto left the whole suite green,
+/// so the choice was invisible in both directions: a reader could not tell it
+/// was deliberate, and a later change could not tell it was load-bearing.
+///
+/// This fixture is the case that punishes its removal. Both columns are
+/// UUIDs, so both type to the same allowlisted leaf; `revisions.id` is a
+/// strict subset of `documents.id`, so referential integrity holds with zero
+/// orphans; and `documents.id` is unique. Every accept gate passes. The ONLY
+/// thing standing between that and a fabricated foreign key is the veto —
+/// without it `semantic_similarity` is 1.0, the pair clears the 0.3 candidate
+/// prune that `name_similarity` alone (0.0, by the matching veto there) would
+/// have stopped it at, and the edge is discovered and accepted.
+#[test]
+fn two_uuid_id_columns_do_not_pair_in_either_direction() {
+    let conn = duckdb::Connection::open_in_memory().expect("open duckdb");
+    conn.execute_batch(
+        "CREATE TABLE documents (id VARCHAR);
+         INSERT INTO documents VALUES
+           ('4f9c1b2e-1d7a-4c3e-9f10-2a6b8c4d5e70'),
+           ('a1b2c3d4-e5f6-4708-9a1b-2c3d4e5f6071'),
+           ('9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b62'),
+           ('0e1d2c3b-4a59-4687-9584-736251403f13'),
+           ('c3d4e5f6-0718-4293-8a4b-5c6d7e8f9004'),
+           ('7a6b5c4d-3e2f-4109-8877-665544332215');
+         CREATE TABLE revisions (id VARCHAR);
+         INSERT INTO revisions VALUES
+           ('4f9c1b2e-1d7a-4c3e-9f10-2a6b8c4d5e70'),
+           ('a1b2c3d4-e5f6-4708-9a1b-2c3d4e5f6071'),
+           ('9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b62');",
+    )
+    .expect("build the two-uuid fixture");
+
+    // The premises the assertion rests on, asserted rather than assumed.
+    let types = semantic_types(&conn).expect("type the columns");
+    for table in ["documents", "revisions"] {
+        assert_eq!(
+            types.get(table, "id"),
+            Some("representation.identifier.uuid"),
+            "{table}.id must type as UUID for this test to mean anything"
+        );
+    }
+    assert!(
+        dovetail_core::identifiers::is_identifier_leaf("representation.identifier.uuid"),
+        "UUID must be on the allowlist for this test to mean anything"
+    );
+
+    let edges = discover_with_types(&conn, &types).expect("discover");
+    let between: Vec<String> = edges
+        .iter()
+        .map(|e| {
+            format!(
+                "{} -> {} ({})",
+                e.child.qualified(),
+                e.parent.qualified(),
+                e.status.as_str()
+            )
+        })
+        .collect();
+    assert!(
+        between.is_empty(),
+        "two tables keyed by UUID `id` must not produce a candidate edge in either \
+         direction — the bare-`id` veto in semantic_similarity is what stops it: {between:?}"
+    );
 }

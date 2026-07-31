@@ -46,10 +46,13 @@
 //! - **`finance.payment.credit_card_number`** — checksum-anchored, and still not
 //!   a join key. A card number is a secret; rewarding joins across it is a
 //!   feature nobody should get by default.
-//! - **`technology.identifier.tsid` / `snowflake_id`** — integer-shaped, same
-//!   problem as `increment`. **`ulid`** is excluded by finetype's own fast path
-//!   for over-firing on short generic shapes; this list defers to that
-//!   judgement rather than second-guessing it.
+//! - **`technology.identifier.snowflake_id`** — validates `^\d{17,20}$` in the
+//!   taxonomy pinned here, and carries no `checksum:`. All digits, so it is
+//!   `increment`'s problem narrowed to a length band: nothing in the value
+//!   separates a snowflake from any other 17-to-20-digit number.
+//!   **`ulid`** is excluded by finetype's own fast path for over-firing on
+//!   short generic shapes; this list defers to that judgement rather than
+//!   second-guessing it.
 //! - **`geography.transportation.iso6346`** — checksum-anchored and otherwise
 //!   admissible, but four of its five taxonomy samples fail its own mod-11 check
 //!   digit, leaving one worked example to test exclusivity against. A shipping
@@ -75,17 +78,17 @@ pub const ALLOWLIST_VERSION: u32 = 1;
 /// taxonomy. Every entry must satisfy [`admission_route`].
 pub const IDENTIFIER_LEAVES: &[&str] = &[
     // ── checksum-anchored: the value's own check digits prove the type ──────
-    "finance.banking.iban",             // ISO 13616 + mod-97
-    "finance.securities.cusip",         // mod-10 with alpha weights
-    "finance.securities.figi",          // mod-10 over the 12-char code
-    "finance.securities.isin",          // ISO 6166 mod-10
-    "finance.securities.lei",           // ISO 17442, ISO 7064 mod-97-10
-    "finance.securities.sedol",         // weighted mod-10
-    "identity.academic.orcid",          // ISO 7064 mod-11-2
-    "identity.commerce.isbn",           // ISBN-10 mod-11 / ISBN-13 mod-10
-    "identity.commerce.issn",           // mod-11
-    "identity.government.abn",          // mod-89
-    "identity.medical.npi",             // Luhn over the 80840 prefix
+    "finance.banking.iban",     // ISO 13616 + mod-97
+    "finance.securities.cusip", // mod-10 with alpha weights
+    "finance.securities.figi",  // mod-10 over the 12-char code
+    "finance.securities.isin",  // ISO 6166 mod-10
+    "finance.securities.lei",   // ISO 17442, ISO 7064 mod-97-10
+    "finance.securities.sedol", // weighted mod-10
+    "identity.academic.orcid",  // ISO 7064 mod-11-2
+    "identity.commerce.isbn",   // ISBN-10 mod-11 / ISBN-13 mod-10
+    "identity.commerce.issn",   // mod-11
+    "identity.government.abn",  // mod-89
+    "identity.medical.npi",     // Luhn over the 80840 prefix
     // ── structurally conclusive: finetype's own fast path resolves these ────
     "finance.crypto.ethereum_address", // `0x` + 40 hex
     "identity.person.email",           // the natural account key, in practice
@@ -117,12 +120,20 @@ pub fn admission_route(tax: &finetype_core::Taxonomy, leaf: &str) -> AdmissionRo
     let Some(def) = tax.get(leaf) else {
         return AdmissionRoute::ShapeOnly;
     };
-    if def.checksum.as_deref().and_then(finetype_core::checksum::resolve).is_some() {
+    if def
+        .checksum
+        .as_deref()
+        .and_then(finetype_core::checksum::resolve)
+        .is_some()
+    {
         return AdmissionRoute::Checksum;
     }
     // Route 2: finetype's own fast path resolves this leaf from its own samples.
-    let samples: Vec<String> =
-        def.samples.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
+    let samples: Vec<String> = def
+        .samples
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
     if !samples.is_empty()
         && finetype_core::deterministic_fast_path(tax, &samples).as_deref() == Some(leaf)
     {
@@ -157,8 +168,10 @@ mod tests {
     /// redden here on an upstream change dovetail does not control.
     fn valid_samples_of(leaf: &str) -> Vec<String> {
         let tax = taxonomy();
-        let checksum =
-            tax.get(leaf).and_then(|d| d.checksum.as_deref()).and_then(finetype_core::checksum::resolve);
+        let checksum = tax
+            .get(leaf)
+            .and_then(|d| d.checksum.as_deref())
+            .and_then(finetype_core::checksum::resolve);
         samples_of(leaf)
             .into_iter()
             .filter(|s| checksum.is_none_or(|verify| verify(s)))
@@ -189,9 +202,15 @@ mod tests {
     #[test]
     fn every_allowlisted_leaf_exists_in_the_pinned_taxonomy() {
         let tax = taxonomy();
-        let missing: Vec<&str> =
-            IDENTIFIER_LEAVES.iter().copied().filter(|l| tax.get(l).is_none()).collect();
-        assert!(missing.is_empty(), "allowlist has drifted from the taxonomy: {missing:?}");
+        let missing: Vec<&str> = IDENTIFIER_LEAVES
+            .iter()
+            .copied()
+            .filter(|l| tax.get(l).is_none())
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "allowlist has drifted from the taxonomy: {missing:?}"
+        );
     }
 
     /// Exclusivity, proven by round trip: each leaf's own taxonomy samples must
@@ -216,7 +235,11 @@ mod tests {
                 other => misses.push(format!("{leaf}: resolved to {other:?}")),
             }
         }
-        assert!(misses.is_empty(), "allowlist entries not exclusive:\n{}", misses.join("\n"));
+        assert!(
+            misses.is_empty(),
+            "allowlist entries not exclusive:\n{}",
+            misses.join("\n")
+        );
     }
 
     /// The list must not fire on the rest of the taxonomy. Every NON-allowlisted
@@ -253,8 +276,10 @@ mod tests {
     /// addition has to argue with a test rather than with a comment.
     #[test]
     fn the_integer_shaped_identifier_leaves_stay_out() {
-        for leaf in ["representation.identifier.increment", "representation.identifier.numeric_code"]
-        {
+        for leaf in [
+            "representation.identifier.increment",
+            "representation.identifier.numeric_code",
+        ] {
             assert!(
                 !is_identifier_leaf(leaf),
                 "{leaf} validates ^[0-9]+$ — admitting it makes every integer column a key"
