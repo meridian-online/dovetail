@@ -10,7 +10,11 @@
 //! a coincidence or a broken reference is rejected; a plausible-but-unprovable
 //! edge is surfaced as suggested (choice 0007, refined).
 
+use std::collections::HashMap;
+
 use duckdb::Connection;
+
+use crate::identifiers;
 
 /// A column reference (table + column).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,12 +32,26 @@ impl ColumnRef {
 /// Evidence gathered for a candidate edge (child → parent).
 #[derive(Debug, Clone)]
 pub struct Evidence {
-    /// Name-similarity signal in [0,1] (FK-style naming, column equality).
+    /// Name-similarity signal in `[0,1]` (FK-style naming, column equality).
     pub name_similarity: f64,
-    /// Fraction of the child's distinct values present in the parent, [0,1].
+    /// Type-agreement signal in `[0,1]`: 1.0 when child and parent carry the SAME
+    /// allowlisted finetype identifier leaf. Its own term, deliberately not
+    /// folded into `name_similarity` — the two measure different things, and a
+    /// term whose name lies about what it measures is how a score stops being
+    /// auditable. The confidence formula takes `max` of the two, so spelling and
+    /// typing can each carry an edge on their own and neither can veto the other.
+    pub semantic_similarity: f64,
+    /// Fraction of the child's distinct values present in the parent, `[0,1]`.
     pub value_overlap: f64,
-    /// How key-like the parent is: id-shaped name + distinct ratio, [0,1].
+    /// How key-like the parent is: id-shaped name + distinct ratio, `[0,1]`.
     pub parent_key_likeness: f64,
+    /// The finetype leaf resolved for the child column this run, if any.
+    pub child_semantic_type: Option<String>,
+    /// The finetype leaf resolved for the parent column this run, if any.
+    pub parent_semantic_type: Option<String>,
+    /// Both sides typed, at least one an allowlisted identifier, and they
+    /// disagree. Demotes an otherwise-accepted edge to `Suggested`; never prunes.
+    pub semantic_mismatch: bool,
     pub child_distinct: i64,
     pub parent_distinct: i64,
     pub parent_total: i64,
@@ -99,10 +117,77 @@ pub const CONF_HIGH: f64 = 0.6;
 /// Orphan rate at or below which integrity "nearly holds" (dirty-data tolerance).
 pub const ORPHAN_TOLERANCE: f64 = 0.05;
 
+/// Floor a column's key-likeness signal takes when finetype resolves it to an
+/// allowlisted identifier leaf — parity with the `*_id` naming convention.
+///
+/// The value is a **margin** choice, not a pass/fail one. Against a unique
+/// parent with full value overlap and an exact column-name match, the other
+/// factors multiply out to 0.846, so a floor of 0.60 scores 0.643, 0.85 scores
+/// 0.770 and 1.00 scores 0.846 — all three clear `CONF_HIGH`. 0.85 is the honest
+/// claim: *a semantic type is worth what the naming convention was worth, and no
+/// more*. 1.00 would assert the type beats an explicit primary-key name; 0.60
+/// leaves 0.043 of headroom, thin enough that an unrelated change could flip
+/// edges silently.
+pub const SEMANTIC_KEY_FLOOR: f64 = 0.85;
+
+// --- Semantic typing pass ----------------------------------------------------
+
+/// Every column's finetype semantic type, resolved **once per run**.
+///
+/// Discovery and description used to type columns independently: `discover` read
+/// `information_schema.columns.data_type` and collapsed it to coarse families
+/// (`int` / `text`), while `build_descriptor` ran finetype over the same columns
+/// moments later. So the run held two notions of a column's type and only one of
+/// them reached the gate — in code the product claim ran backwards, discovering
+/// the edges and *then* typing the nodes.
+///
+/// This is the single answer both halves read. A column appears here exactly
+/// once, so the descriptor cannot disagree with the gate about the same column.
+#[derive(Debug, Clone, Default)]
+pub struct SemanticTypes {
+    by_column: HashMap<(String, String), Option<String>>,
+}
+
+impl SemanticTypes {
+    /// The leaf resolved for `table.column`, or `None` — both for "finetype
+    /// declined to type it" and for "not a column of this database".
+    pub fn get(&self, table: &str, column: &str) -> Option<&str> {
+        self.by_column.get(&(table.to_string(), column.to_string()))?.as_deref()
+    }
+
+    /// How many columns resolved to a semantic type.
+    pub fn resolved_count(&self) -> usize {
+        self.by_column.values().filter(|v| v.is_some()).count()
+    }
+}
+
+/// Type every column in the database with finetype, model-free. This is the pass
+/// that runs FIRST — finetype types the nodes, then relate discovers the edges.
+pub fn semantic_types(conn: &Connection) -> duckdb::Result<SemanticTypes> {
+    let columns = read_columns(conn)?;
+    let mut by_column = HashMap::with_capacity(columns.len());
+    for c in &columns {
+        let sample = sample_column_values(conn, &c.col.table, &c.col.column, FIELD_SAMPLE_N)?;
+        let leaf = crate::typing::deterministic_semantic_type(&sample);
+        by_column.insert((c.col.table.clone(), c.col.column.clone()), leaf);
+    }
+    Ok(SemanticTypes { by_column })
+}
+
 // --- Public entry point ------------------------------------------------------
 
-/// Discover, verify and score all candidate FK edges in a DuckDB.
+/// Discover, verify and score all candidate FK edges in a DuckDB, typing the
+/// columns first. Convenience wrapper over [`discover_with_types`]; a caller that
+/// also needs the descriptor should use [`run_path`] (or type once itself) so the
+/// two halves share one answer.
 pub fn discover(conn: &Connection) -> duckdb::Result<Vec<Edge>> {
+    let types = semantic_types(conn)?;
+    discover_with_types(conn, &types)
+}
+
+/// Discover, verify and score all candidate FK edges against an already-computed
+/// semantic typing of the database.
+pub fn discover_with_types(conn: &Connection, types: &SemanticTypes) -> duckdb::Result<Vec<Edge>> {
     let columns = read_columns(conn)?;
     let mut edges = Vec::new();
 
@@ -114,13 +199,30 @@ pub fn discover(conn: &Connection) -> duckdb::Result<Vec<Edge>> {
             if !types_compatible(&child.ty, &parent.ty) {
                 continue;
             }
-            // Prune: a parent must be at least plausibly key-like by name, or the
-            // columns must share a name — otherwise skip the expensive queries.
+            let child_leaf = types.get(&child.col.table, &child.col.column);
+            let parent_leaf = types.get(&parent.col.table, &parent.col.column);
+
+            // Prune: a pair must be at least plausibly related before the
+            // expensive queries run. Name spelling was the only way past this
+            // gate, so a pair whose names share nothing never reached scoring at
+            // all — it was dropped here, not out-scored later. Shared identifier
+            // typing is a second way through, so a pair whose names share nothing
+            // and whose types share everything is still measured.
             let name_similarity = name_similarity(&child.col, &parent.col);
-            if name_similarity < 0.3 {
+            let semantic_similarity =
+                semantic_similarity(&child.col, child_leaf, parent_leaf);
+            if name_similarity.max(semantic_similarity) < 0.3 {
                 continue;
             }
-            if let Some(edge) = score_edge(conn, &child.col, &parent.col, name_similarity)? {
+            if let Some(edge) = score_edge(
+                conn,
+                &child.col,
+                &parent.col,
+                name_similarity,
+                semantic_similarity,
+                child_leaf,
+                parent_leaf,
+            )? {
                 edges.push(edge);
             }
         }
@@ -146,8 +248,11 @@ pub struct RelateRun {
 /// CLI needs.
 pub fn run_path(path: &str) -> duckdb::Result<RelateRun> {
     let conn = Connection::open(path)?;
-    let edges = discover(&conn)?;
-    let descriptor = build_descriptor(&conn, &edges, path)?;
+    // finetype types the nodes, THEN relate discovers the edges — one typing,
+    // read by both halves.
+    let types = semantic_types(&conn)?;
+    let edges = discover_with_types(&conn, &types)?;
+    let descriptor = build_descriptor_with_types(&conn, &edges, path, &types)?;
     Ok(RelateRun { edges, descriptor })
 }
 
@@ -159,7 +264,14 @@ pub fn accepted(edges: &[Edge]) -> Vec<&Edge> {
 /// How many non-null values per column relate samples from the data to ask
 /// finetype for a semantic type. Enough for the deterministic value-only typer to
 /// reach its ≥90%-of-sample agreement bar without scanning whole columns.
-const FIELD_SAMPLE_N: usize = 100;
+///
+/// **One sample, one type, both consumers.** The tempting split — a small sample
+/// for describing a column and a larger one for gating an edge — yields two
+/// different notions of the same column's type inside one run, so the descriptor
+/// could disagree with the gate about a column it is describing. Instead this is
+/// raised once and the single result serves both. The cost is per column, not per
+/// candidate pair, so it does not scale with the O(n²) candidate loop.
+const FIELD_SAMPLE_N: usize = 500;
 
 /// Build a Frictionless Data Package descriptor for the DuckDB's tables — the one
 /// self-assembling artifact that carries BOTH halves of the model: every field is
@@ -179,6 +291,19 @@ const FIELD_SAMPLE_N: usize = 100;
 /// becomes `datetime`. Field shape matches survey's descriptor exactly
 /// (`datapackage::Field`), so the two flows self-assemble into one format.
 pub fn build_descriptor(conn: &Connection, edges: &[Edge], source: &str) -> duckdb::Result<serde_json::Value> {
+    let types = semantic_types(conn)?;
+    build_descriptor_with_types(conn, edges, source, &types)
+}
+
+/// [`build_descriptor`] against an already-computed typing of the database — the
+/// form [`run_path`] uses, so the descriptor is written from the very same
+/// semantic types the discovery gate scored on.
+pub fn build_descriptor_with_types(
+    conn: &Connection,
+    edges: &[Edge],
+    source: &str,
+    types: &SemanticTypes,
+) -> duckdb::Result<serde_json::Value> {
     use serde_json::json;
     let columns = read_columns(conn)?;
 
@@ -194,7 +319,8 @@ pub fn build_descriptor(conn: &Connection, edges: &[Edge], source: &str) -> duck
     for table in &table_order {
             let mut fields: Vec<serde_json::Value> = Vec::new();
             for c in columns.iter().filter(|c| &c.col.table == table) {
-                let field = typed_field(conn, &c.col.table, &c.col.column, &c.ty)?;
+                let semantic = types.get(&c.col.table, &c.col.column).map(str::to_string);
+                let field = typed_field(&c.col.column, &c.ty, semantic);
                 fields.push(serde_json::to_value(&field).expect("Field serializes"));
             }
             let fks: Vec<serde_json::Value> = edges
@@ -227,24 +353,24 @@ pub fn build_descriptor(conn: &Connection, edges: &[Edge], source: &str) -> duck
     }))
 }
 
-/// Build a typed Table Schema field for a DuckDB column. finetype's deterministic
-/// value-only typer is asked first: a resolved leaf maps through
+/// Build a typed Table Schema field for a DuckDB column from the run's single
+/// semantic typing. A resolved leaf maps through
 /// `finetype_core::frictionless_for` to the authoritative Frictionless
 /// `{type, format}` and is recorded as the field's semantic type. A column
-/// finetype cannot conclusively type falls back to the DuckDB SQL type family.
+/// finetype declined to type falls back to the DuckDB SQL type family.
+///
+/// `semantic` is passed in rather than recomputed: the descriptor must describe
+/// the same type the discovery gate scored on.
 fn typed_field(
-    conn: &Connection,
-    table: &str,
     column: &str,
     sql_ty: &str,
-) -> duckdb::Result<crate::datapackage::Field> {
+    semantic: Option<String>,
+) -> crate::datapackage::Field {
     use crate::datapackage::Field;
 
-    let sample = sample_column_values(conn, table, column, FIELD_SAMPLE_N)?;
-    let semantic = crate::typing::deterministic_semantic_type(&sample);
     let fx = semantic.as_deref().and_then(finetype_core::frictionless_for);
 
-    Ok(match fx {
+    match fx {
         Some(fx) => Field {
             name: column.to_string(),
             ty: fx.ftype,
@@ -257,7 +383,7 @@ fn typed_field(
             format: None,
             semantic_type: None,
         },
-    })
+    }
 }
 
 /// Sample up to `n` non-null values from a column, rendered as text (the form
@@ -335,11 +461,15 @@ fn type_family(ty: &str) -> &'static str {
 
 // --- Evidence + verification + scoring (ac-02/03/04) --------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn score_edge(
     conn: &Connection,
     child: &ColumnRef,
     parent: &ColumnRef,
     name_similarity: f64,
+    semantic_similarity: f64,
+    child_leaf: Option<&str>,
+    parent_leaf: Option<&str>,
 ) -> duckdb::Result<Option<Edge>> {
     let ct = quote(&child.table);
     let cc = quote(&child.column);
@@ -394,17 +524,25 @@ fn score_edge(
     let parent_distinct_ratio =
         if parent_total == 0 { 0.0 } else { parent_distinct as f64 / parent_total as f64 };
     let parent_key_likeness =
-        0.6 * key_name_signal(&parent.column) + 0.4 * parent_distinct_ratio;
+        0.6 * key_signal(&parent.column, parent_leaf) + 0.4 * parent_distinct_ratio;
 
-    // Confidence: naming + overlap, GATED by how key-like the parent is. A
+    // Confidence: pair evidence + overlap, GATED by how key-like the parent is. A
     // perfect name/overlap match against a non-key parent (e.g. a boolean) is
-    // still low confidence — this is what stops coincidental overlaps.
-    let confidence = (0.5 * name_similarity + 0.5 * value_overlap) * parent_key_likeness;
+    // still low confidence — this is what stops coincidental overlaps. The pair
+    // term takes the STRONGER of spelling and shared typing, so neither signal
+    // can drag the other down and no new weight is introduced.
+    let pair_similarity = name_similarity.max(semantic_similarity);
+    let confidence = (0.5 * pair_similarity + 0.5 * value_overlap) * parent_key_likeness;
 
+    let semantic_mismatch = semantic_mismatch(child_leaf, parent_leaf);
     let evidence = Evidence {
         name_similarity,
+        semantic_similarity,
         value_overlap,
         parent_key_likeness,
+        child_semantic_type: child_leaf.map(str::to_string),
+        parent_semantic_type: parent_leaf.map(str::to_string),
+        semantic_mismatch,
         child_distinct,
         parent_distinct,
         parent_total,
@@ -412,8 +550,39 @@ fn score_edge(
     let verification = Verification { orphan_count, child_total, parent_unique };
 
     let (status, reason) = assign_status(&verification, confidence);
+    let (status, reason) = demote_on_mismatch(status, reason, &evidence);
 
     Ok(Some(Edge { child: child.clone(), parent: parent.clone(), evidence, verification, confidence, status, reason }))
+}
+
+/// A semantic disagreement DEMOTES an accepted edge to `Suggested`. It never
+/// prunes and never rejects.
+///
+/// Pruning is the only shape this feature could take that lets finetype
+/// **destroy** a real edge, invisibly — and finetype does mis-type columns in
+/// production. A mis-typed column that fails to boost costs a missed edge; one
+/// that prunes costs a deleted edge with no trace of what deleted it. Demotion
+/// keeps the failure visible, reviewable and recoverable: the edge is still in
+/// the descriptor, carrying both types and the reason it was held back.
+///
+/// The cost is accepted: no candidate-loop savings. Correctness first.
+fn demote_on_mismatch(
+    status: EdgeStatus,
+    reason: String,
+    evidence: &Evidence,
+) -> (EdgeStatus, String) {
+    if !evidence.semantic_mismatch || status != EdgeStatus::Accepted {
+        return (status, reason);
+    }
+    let child = evidence.child_semantic_type.as_deref().unwrap_or("untyped");
+    let parent = evidence.parent_semantic_type.as_deref().unwrap_or("untyped");
+    (
+        EdgeStatus::Suggested,
+        format!(
+            "demoted for review: the data verifies but the types disagree \
+             (child {child} vs parent {parent}) — {reason}"
+        ),
+    )
 }
 
 /// Status from verification + confidence (ac-04). Verification is the safety
@@ -450,7 +619,7 @@ fn assign_status(v: &Verification, confidence: f64) -> (EdgeStatus, String) {
     }
 }
 
-// --- Name similarity ---------------------------------------------------------
+// --- Key-likeness, naming and typing -----------------------------------------
 
 /// How key-like a column NAME is: `id` / `*_id` score high.
 fn key_name_signal(col: &str) -> f64 {
@@ -466,7 +635,66 @@ fn key_name_signal(col: &str) -> f64 {
     }
 }
 
-/// Name-similarity signal for a candidate (child → parent), [0,1]. Rewards the
+/// How key-like a column is: its name spelling, FLOORED by its semantic type.
+///
+/// `max`, deliberately — a column finetype resolves to an allowlisted identifier
+/// is at least as key-like as one merely spelled `*_id`, and a column that is
+/// *both* keeps whatever its spelling earned. Spelling can promote; it can never
+/// demote. Every existing weight keeps the meaning it had.
+///
+/// A column finetype declines to type, or types to a leaf that is not on the
+/// allowlist, gets no floor at all — exactly today's behaviour. That is the
+/// fail-closed property: the worst an unknown type can do here is nothing.
+fn key_signal(col: &str, leaf: Option<&str>) -> f64 {
+    let name = key_name_signal(col);
+    match leaf {
+        Some(l) if identifiers::is_identifier_leaf(l) => name.max(SEMANTIC_KEY_FLOOR),
+        _ => name,
+    }
+}
+
+/// Type-agreement between a candidate's two columns, `[0,1]`.
+///
+/// 1.0 when both resolve to the SAME allowlisted identifier leaf. This is the
+/// term that makes the fix generalise: a parent-side floor alone rescues a pair
+/// that happens to share a column name, but does nothing for a pair whose names
+/// share nothing and whose types share everything — a child column named
+/// `entity_ref` pointing at a registry column named `lei`, both holding
+/// legal-entity identifiers.
+///
+/// Note the ceiling this term inherits: it can only fire where finetype
+/// *resolves* both columns, so it reaches identifiers that carry structure or
+/// check digits and never a bare numeric registry number, whose digits say
+/// nothing about what the number counts.
+///
+/// The bare-`id` exclusion is carried over from [`name_similarity`] and is
+/// deliberately absolute: a child column named exactly `id` is its own table's
+/// primary key. That is a fact about the column's ROLE, which typing cannot
+/// establish — two tables keyed by UUID both have `id` columns, and neither
+/// references the other.
+fn semantic_similarity(child: &ColumnRef, child_leaf: Option<&str>, parent_leaf: Option<&str>) -> f64 {
+    if child.column.eq_ignore_ascii_case("id") {
+        return 0.0;
+    }
+    match (child_leaf, parent_leaf) {
+        (Some(c), Some(p)) if c == p && identifiers::is_identifier_leaf(c) => 1.0,
+        _ => 0.0,
+    }
+}
+
+/// Whether the two sides carry finetype types that disagree, with at least one
+/// of them an allowlisted identifier. Two untyped columns never mismatch, and
+/// two columns typed the same never mismatch.
+fn semantic_mismatch(child_leaf: Option<&str>, parent_leaf: Option<&str>) -> bool {
+    match (child_leaf, parent_leaf) {
+        (Some(c), Some(p)) => {
+            c != p && (identifiers::is_identifier_leaf(c) || identifiers::is_identifier_leaf(p))
+        }
+        _ => false,
+    }
+}
+
+/// Name-similarity signal for a candidate (child → parent), `[0,1]`. Rewards the
 /// FK convention `child.<parent_singular>_id` and exact column-name equality.
 fn name_similarity(child: &ColumnRef, parent: &ColumnRef) -> f64 {
     let cc = child.column.to_ascii_lowercase();
@@ -526,8 +754,13 @@ impl Edge {
             confidence: round2(self.confidence),
             evidence: serde_json::json!({
                 "nameSimilarity": round2(self.evidence.name_similarity),
+                "semanticSimilarity": round2(self.evidence.semantic_similarity),
                 "valueOverlap": round2(self.evidence.value_overlap),
                 "parentKeyLikeness": round2(self.evidence.parent_key_likeness),
+                "childSemanticType": self.evidence.child_semantic_type,
+                "parentSemanticType": self.evidence.parent_semantic_type,
+                "semanticMismatch": self.evidence.semantic_mismatch,
+                "identifierAllowlistVersion": identifiers::ALLOWLIST_VERSION,
                 "parentUnique": self.verification.parent_unique,
                 "orphanCount": self.verification.orphan_count,
                 "reason": self.reason,

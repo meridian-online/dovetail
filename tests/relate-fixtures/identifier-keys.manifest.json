@@ -1,0 +1,42 @@
+{
+  "description": "Expected relate outcomes for the identifier-keyed fixture — join keys spelled with raw registry names, never renamed to *_id. Each entry names the candidate edge (child.column -> parent.column), the status relate must assign it, and the status it got BEFORE edges were scored on finetype's types. `accepted_edges` is the complete accepted set: any edge not listed there must not auto-accept.",
+  "expected_edges": [
+    {
+      "case": "a-raw-name-lei",
+      "child": "link.lei",
+      "parent": "entity_registry.lei",
+      "status": "accepted",
+      "status_before": "rejected",
+      "why": "a checksum-valid identifier column against a unique parent, discovered with no rename; scored 0.44 when key-likeness came only from spelling"
+    },
+    {
+      "case": "a-raw-name-isin",
+      "child": "link.isin",
+      "parent": "security_registry.isin",
+      "status": "accepted",
+      "status_before": "rejected",
+      "why": "the second directional key of the same link table, same reason"
+    },
+    {
+      "case": "b-names-differ-types-agree",
+      "child": "filings.entity_ref",
+      "parent": "entity_registry.lei",
+      "status": "accepted",
+      "status_before": "not discovered",
+      "why": "the names share no substring, so name similarity is 0.0 and the candidate never reached scoring; shared identifier typing is what gets it past the prune"
+    },
+    {
+      "case": "c-semantic-mismatch",
+      "child": "mixed_ref.security_ref",
+      "parent": "instrument_ref.security_ref",
+      "status": "suggested",
+      "status_before": "rejected",
+      "why": "every accept gate passes — 0 orphans, unique parent, confidence over the line — but the child types as LEI and the parent as ISIN, so the edge is demoted for review rather than accepted; it stays in the descriptor carrying both types"
+    }
+  ],
+  "accepted_edges": [
+    "filings.entity_ref -> entity_registry.lei",
+    "link.isin -> security_registry.isin",
+    "link.lei -> entity_registry.lei"
+  ]
+}
