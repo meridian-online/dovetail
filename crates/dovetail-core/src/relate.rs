@@ -658,8 +658,14 @@ fn key_signal(col: &str, leaf: Option<&str>) -> f64 {
 /// 1.0 when both resolve to the SAME allowlisted identifier leaf. This is the
 /// term that makes the fix generalise: a parent-side floor alone rescues a pair
 /// that happens to share a column name, but does nothing for a pair whose names
-/// share nothing and whose types share everything — the child column that spells
-/// a company number one way and the registry that spells it another.
+/// share nothing and whose types share everything — a child column named
+/// `entity_ref` pointing at a registry column named `lei`, both holding
+/// legal-entity identifiers.
+///
+/// Note the ceiling this term inherits: it can only fire where finetype
+/// *resolves* both columns, so it reaches identifiers that carry structure or
+/// check digits and never a bare numeric registry number, whose digits say
+/// nothing about what the number counts.
 ///
 /// The bare-`id` exclusion is carried over from [`name_similarity`] and is
 /// deliberately absolute: a child column named exactly `id` is its own table's
