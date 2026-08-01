@@ -63,8 +63,7 @@ pub fn survey_file(
     policy: DuplicatePolicy,
     created: Option<String>,
 ) -> std::io::Result<SurveyReport> {
-    let input = SampledInput::from_path(path)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let input = SampledInput::from_path(path).map_err(std::io::Error::other)?;
     let detection = detector.detect(&input);
     let name = resource_name(path);
 

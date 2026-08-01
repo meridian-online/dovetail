@@ -11,17 +11,12 @@ use crate::structure::{Detection, Format, Structure};
 /// The duplicate-column policy survey records when an input has repeated column
 /// names. `Rename` is the default — deterministic, and keeps every
 /// column's data rather than dropping silently (review-spec finding 4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DuplicatePolicy {
+    #[default]
     Rename,
     KeepFirst,
     KeepLast,
-}
-
-impl Default for DuplicatePolicy {
-    fn default() -> Self {
-        DuplicatePolicy::Rename
-    }
 }
 
 /// A single-quoted SQL string literal with embedded quotes escaped.
