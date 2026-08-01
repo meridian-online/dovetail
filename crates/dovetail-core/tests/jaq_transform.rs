@@ -21,7 +21,10 @@ struct Case {
 }
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 fn corpus() -> Vec<Case> {
@@ -36,7 +39,11 @@ fn passthrough_program_is_byte_equal() {
     for case in corpus() {
         let out = run_jaq(&case.program, case.input.as_bytes())
             .unwrap_or_else(|e| panic!("{}: {e}", case.name));
-        assert_eq!(out.program, case.program, "{}: program was rewritten", case.name);
+        assert_eq!(
+            out.program, case.program,
+            "{}: program was rewritten",
+            case.name
+        );
     }
 }
 
@@ -69,8 +76,12 @@ fn yaml_input_converts_and_runs() {
 #[test]
 fn output_is_reproducible() {
     for case in corpus() {
-        let a = run_jaq(&case.program, case.input.as_bytes()).unwrap().to_ndjson();
-        let b = run_jaq(&case.program, case.input.as_bytes()).unwrap().to_ndjson();
+        let a = run_jaq(&case.program, case.input.as_bytes())
+            .unwrap()
+            .to_ndjson();
+        let b = run_jaq(&case.program, case.input.as_bytes())
+            .unwrap()
+            .to_ndjson();
         assert_eq!(a, b, "{}: output not reproducible", case.name);
     }
 }
@@ -90,9 +101,7 @@ fn reference_parity_vs_system_jq() {
             .to_ndjson();
         let theirs = system_jq(&case.program, &case.input);
         if ours != theirs {
-            mismatches.push(format!(
-                "{}: jaq={:?} jq={:?}", case.name, ours, theirs
-            ));
+            mismatches.push(format!("{}: jaq={:?} jq={:?}", case.name, ours, theirs));
         }
     }
     assert!(
@@ -110,7 +119,11 @@ fn jaq_version_is_stamped() {
 }
 
 fn jq_available() -> bool {
-    Command::new("jq").arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+    Command::new("jq")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 fn system_jq(program: &str, input: &str) -> String {
@@ -122,7 +135,12 @@ fn system_jq(program: &str, input: &str) -> String {
         .stdout(std::process::Stdio::piped())
         .spawn()
         .expect("spawn jq");
-    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
     let out = child.wait_with_output().expect("jq output");
     String::from_utf8(out.stdout).expect("jq utf8")
 }

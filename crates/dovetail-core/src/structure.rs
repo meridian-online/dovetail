@@ -58,7 +58,10 @@ pub struct Column {
 
 impl Column {
     pub fn untyped(name: impl Into<String>) -> Self {
-        Column { name: name.into(), semantic_type: None }
+        Column {
+            name: name.into(),
+            semantic_type: None,
+        }
     }
 }
 

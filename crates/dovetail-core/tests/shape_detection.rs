@@ -41,8 +41,8 @@ fn load_manifests() -> Vec<(Manifest, PathBuf)> {
             continue;
         }
         let text = std::fs::read_to_string(&manifest_path).unwrap();
-        let manifest: Manifest = serde_json::from_str(&text)
-            .unwrap_or_else(|e| panic!("parse {manifest_path:?}: {e}"));
+        let manifest: Manifest =
+            serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {manifest_path:?}: {e}"));
         let data_path = entry.path().join(&manifest.file);
         out.push((manifest, data_path));
     }
@@ -76,7 +76,11 @@ fn shape_detector_matches_every_fixture_manifest() {
             ));
         }
     }
-    assert!(misses.is_empty(), "structure misses:\n{}", misses.join("\n"));
+    assert!(
+        misses.is_empty(),
+        "structure misses:\n{}",
+        misses.join("\n")
+    );
 }
 
 #[test]
@@ -90,7 +94,8 @@ fn duplicate_columns_are_surfaced() {
         let det = detector.detect(&input);
         assert_eq!(
             det.duplicate_columns, manifest.duplicate_columns,
-            "{}: duplicate columns not surfaced", manifest.name
+            "{}: duplicate columns not surfaced",
+            manifest.name
         );
     }
 }

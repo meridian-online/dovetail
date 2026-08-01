@@ -29,10 +29,16 @@ fn sql_str(s: &str) -> String {
 fn read_call(det: &Detection, source: &str) -> String {
     match det.format {
         Format::Csv => format!("read_csv({}, header = true, delim = ',')", sql_str(source)),
-        Format::Tsv => format!("read_csv({}, header = true, delim = '\\t')", sql_str(source)),
+        Format::Tsv => format!(
+            "read_csv({}, header = true, delim = '\\t')",
+            sql_str(source)
+        ),
         Format::Parquet => format!("read_parquet({})", sql_str(source)),
         Format::Ndjson => {
-            format!("read_json({}, format = 'newline_delimited')", sql_str(source))
+            format!(
+                "read_json({}, format = 'newline_delimited')",
+                sql_str(source)
+            )
         }
         Format::Json => match det.structure {
             Structure::RecordsArray => format!("read_json({}, format = 'array')", sql_str(source)),
@@ -74,7 +80,9 @@ pub fn emit_sql(
     // no column's data is dropped. With no duplicates (the common case) the load
     // is a plain SELECT *.
     if det.duplicate_columns.is_empty() || policy != DuplicatePolicy::Rename {
-        sql.push_str(&format!("CREATE OR REPLACE TABLE {table} AS\nSELECT * FROM {read};\n"));
+        sql.push_str(&format!(
+            "CREATE OR REPLACE TABLE {table} AS\nSELECT * FROM {read};\n"
+        ));
     } else {
         let projection = renamed_projection(det);
         sql.push_str(&format!(

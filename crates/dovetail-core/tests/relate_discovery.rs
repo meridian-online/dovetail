@@ -11,7 +11,10 @@ use dovetail_core::relate::{accepted, build_descriptor, constraint_ddl, discover
 use serde::Deserialize;
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,10 +54,19 @@ fn discovery_assigns_the_expected_status_to_every_fixture_edge() {
             .iter()
             .find(|e| e.child.qualified() == exp.child && e.parent.qualified() == exp.parent);
         match found {
-            None => misses.push(format!("{}: edge {} -> {} not discovered", exp.case, exp.child, exp.parent)),
+            None => misses.push(format!(
+                "{}: edge {} -> {} not discovered",
+                exp.case, exp.child, exp.parent
+            )),
             Some(e) if e.status.as_str() != exp.status => misses.push(format!(
                 "{}: {} -> {} got {} (conf {:.2}, {}), want {}",
-                exp.case, exp.child, exp.parent, e.status.as_str(), e.confidence, e.reason, exp.status
+                exp.case,
+                exp.child,
+                exp.parent,
+                e.status.as_str(),
+                e.confidence,
+                e.reason,
+                exp.status
             )),
             Some(_) => {}
         }
@@ -68,9 +80,15 @@ fn discovery_assigns_the_expected_status_to_every_fixture_edge() {
 fn only_the_holding_fk_auto_accepts() {
     let conn = build_fixture();
     let edges = discover(&conn).expect("discover");
-    let acc: Vec<String> =
-        accepted(&edges).iter().map(|e| format!("{} -> {}", e.child.qualified(), e.parent.qualified())).collect();
-    assert_eq!(acc, vec!["orders.customer_id -> customers.id".to_string()], "unexpected accepts: {acc:?}");
+    let acc: Vec<String> = accepted(&edges)
+        .iter()
+        .map(|e| format!("{} -> {}", e.child.qualified(), e.parent.qualified()))
+        .collect();
+    assert_eq!(
+        acc,
+        vec!["orders.customer_id -> customers.id".to_string()],
+        "unexpected accepts: {acc:?}"
+    );
 }
 
 // DDL is emitted for accepted edges only, and the FK provably holds:
@@ -82,11 +100,20 @@ fn accepted_edge_ddl_holds_in_duckdb() {
     let edges = discover(&conn).expect("discover");
 
     let ddl = constraint_ddl(&edges);
-    assert!(ddl.contains("ALTER TABLE \"orders\""), "DDL missing accepted FK:\n{ddl}");
+    assert!(
+        ddl.contains("ALTER TABLE \"orders\""),
+        "DDL missing accepted FK:\n{ddl}"
+    );
     assert!(ddl.contains("REFERENCES \"customers\""), "{ddl}");
     // suggested/rejected edges do not compile
-    assert!(!ddl.contains("widget_flags"), "rejected edge leaked into DDL:\n{ddl}");
-    assert!(!ddl.contains("products"), "suggested edge leaked into DDL:\n{ddl}");
+    assert!(
+        !ddl.contains("widget_flags"),
+        "rejected edge leaked into DDL:\n{ddl}"
+    );
+    assert!(
+        !ddl.contains("products"),
+        "suggested edge leaked into DDL:\n{ddl}"
+    );
 
     // Prove the accepted FK holds: CREATE-time FK enforcement on the verified data.
     let check = duckdb::Connection::open_in_memory().unwrap();
@@ -118,7 +145,12 @@ fn foreign_keys_serialize_inside_table_schema_and_conform() {
 
     let schema = TableSchema {
         fields: vec![
-            Field { name: "id".into(), ty: "integer".into(), format: None, semantic_type: None },
+            Field {
+                name: "id".into(),
+                ty: "integer".into(),
+                format: None,
+                semantic_type: None,
+            },
             Field {
                 name: "customer_id".into(),
                 ty: "integer".into(),
@@ -154,9 +186,12 @@ fn relate_descriptor_validates_against_frictionless_profile() {
         .iter()
         .find(|r| r["name"] == "orders")
         .expect("orders resource");
-    let fks = orders["schema"]["foreignKeys"].as_array().expect("foreignKeys present");
-    assert!(fks.iter().any(|fk| fk["reference"]["resource"] == "customers"
-        && fk["x-dovetailStatus"] == "accepted"));
+    let fks = orders["schema"]["foreignKeys"]
+        .as_array()
+        .expect("foreignKeys present");
+    assert!(fks.iter().any(
+        |fk| fk["reference"]["resource"] == "customers" && fk["x-dovetailStatus"] == "accepted"
+    ));
 
     // Validate the whole descriptor against the vendored profile.
     let schema_text =
@@ -164,7 +199,13 @@ fn relate_descriptor_validates_against_frictionless_profile() {
             .unwrap();
     let schema: serde_json::Value = serde_json::from_str(&schema_text).unwrap();
     let validator = jsonschema::validator_for(&schema).expect("compile profile");
-    let errors: Vec<String> =
-        validator.iter_errors(&descriptor).map(|e| format!("{e} at {}", e.instance_path)).collect();
-    assert!(errors.is_empty(), "relate descriptor not conformant:\n{}", errors.join("\n"));
+    let errors: Vec<String> = validator
+        .iter_errors(&descriptor)
+        .map(|e| format!("{e} at {}", e.instance_path))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "relate descriptor not conformant:\n{}",
+        errors.join("\n")
+    );
 }

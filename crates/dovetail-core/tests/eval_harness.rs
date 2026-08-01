@@ -14,7 +14,10 @@ use dovetail_core::detect::FinetypeGuidedDetector;
 const DETECTION_BAR: f64 = 0.90;
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("repo root")
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("repo root")
 }
 
 #[test]

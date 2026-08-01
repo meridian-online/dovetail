@@ -9,20 +9,33 @@ use dovetail_core::survey::{survey_file, Outcome};
 use dovetail_core::ShapeHeuristicDetector;
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 fn fixture_path(name: &str) -> PathBuf {
     let corpus = load_corpus(repo_root().join("tests/fixtures")).unwrap();
-    corpus.iter().find(|f| f.manifest.name == name).unwrap().data_path.clone()
+    corpus
+        .iter()
+        .find(|f| f.manifest.name == name)
+        .unwrap()
+        .data_path
+        .clone()
 }
 
 // Every confident input reports its rung and why.
 #[test]
 fn reports_the_chosen_rung_and_reason() {
     let det = ShapeHeuristicDetector::new();
-    let report =
-        survey_file(&fixture_path("csv-simple"), &det, DuplicatePolicy::default(), None).unwrap();
+    let report = survey_file(
+        &fixture_path("csv-simple"),
+        &det,
+        DuplicatePolicy::default(),
+        None,
+    )
+    .unwrap();
     matches!(report.outcome, Outcome::Emitted { .. });
     let line = report.render();
     assert!(line.contains("rung=sql"), "rung not reported: {line}");
@@ -33,11 +46,19 @@ fn reports_the_chosen_rung_and_reason() {
 #[test]
 fn surfaces_duplicate_columns_and_policy() {
     let det = ShapeHeuristicDetector::new();
-    let report =
-        survey_file(&fixture_path("csv-dup-cols"), &det, DuplicatePolicy::default(), None).unwrap();
+    let report = survey_file(
+        &fixture_path("csv-dup-cols"),
+        &det,
+        DuplicatePolicy::default(),
+        None,
+    )
+    .unwrap();
     assert_eq!(report.detection.duplicate_columns, vec!["id", "name"]);
     let line = report.render();
-    assert!(line.contains("duplicate columns"), "dups not surfaced: {line}");
+    assert!(
+        line.contains("duplicate columns"),
+        "dups not surfaced: {line}"
+    );
     assert!(line.contains("Rename"), "policy not named: {line}");
     assert!(line.contains("no data dropped"), "{line}");
 }

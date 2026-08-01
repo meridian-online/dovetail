@@ -44,7 +44,13 @@ fn sniff_format(input: &SampledInput) -> Format {
     let trimmed = head.trim_start();
     if trimmed.starts_with('[') || trimmed.starts_with('{') {
         // One object per line → ndjson; otherwise a single JSON document.
-        if head.lines().take(2).filter(|l| l.trim_start().starts_with('{')).count() >= 2 {
+        if head
+            .lines()
+            .take(2)
+            .filter(|l| l.trim_start().starts_with('{'))
+            .count()
+            >= 2
+        {
             Format::Ndjson
         } else {
             Format::Json

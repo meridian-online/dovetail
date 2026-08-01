@@ -9,7 +9,10 @@ use dovetail_core::eval::load_corpus;
 use dovetail_core::{Detector, SampledInput, ShapeHeuristicDetector};
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 #[test]
@@ -32,7 +35,11 @@ fn assembles_a_conformant_resource_per_fixture() {
 
         // Table Schema fields mirror the detected columns, in order.
         let field_names: Vec<&str> = r.schema.fields.iter().map(|f| f.name.as_str()).collect();
-        assert_eq!(field_names, fx.manifest.columns, "{} schema fields", fx.manifest.name);
+        assert_eq!(
+            field_names, fx.manifest.columns,
+            "{} schema fields",
+            fx.manifest.name
+        );
 
         // Provenance on the standard fields.
         assert!(r.bytes > 0, "{} bytes", fx.manifest.name);
@@ -46,7 +53,11 @@ fn assembles_a_conformant_resource_per_fixture() {
         // The whole thing serialises to valid JSON.
         let json = serde_json::to_string_pretty(&dp).unwrap();
         assert!(json.contains("\"$schema\""), "{} $schema", fx.manifest.name);
-        assert!(json.contains("x-dovetailLoadRecipe"), "{} recipe", fx.manifest.name);
+        assert!(
+            json.contains("x-dovetailLoadRecipe"),
+            "{} recipe",
+            fx.manifest.name
+        );
     }
 }
 
@@ -77,14 +88,30 @@ fn survey_descriptor_carries_finetype_semantic_types() {
     let dp = assemble(&det, &csv, "signups", Some("signups.sql"), None).unwrap();
 
     let fields = &dp.resources[0].schema.fields;
-    let email = fields.iter().find(|f| f.name == "email").expect("email field");
+    let email = fields
+        .iter()
+        .find(|f| f.name == "email")
+        .expect("email field");
     assert_eq!(email.ty, "string");
     assert_eq!(email.format.as_deref(), Some("email"));
-    assert_eq!(email.semantic_type.as_deref(), Some("identity.person.email"));
+    assert_eq!(
+        email.semantic_type.as_deref(),
+        Some("identity.person.email")
+    );
 
-    let opened = fields.iter().find(|f| f.name == "opened_at").expect("opened_at field");
-    assert_eq!(opened.ty, "datetime", "ISO timestamp must type as datetime, not string");
-    assert!(opened.semantic_type.as_deref().unwrap().starts_with("datetime."));
+    let opened = fields
+        .iter()
+        .find(|f| f.name == "opened_at")
+        .expect("opened_at field");
+    assert_eq!(
+        opened.ty, "datetime",
+        "ISO timestamp must type as datetime, not string"
+    );
+    assert!(opened
+        .semantic_type
+        .as_deref()
+        .unwrap()
+        .starts_with("datetime."));
 
     let _ = std::fs::remove_dir_all(&dir);
 }

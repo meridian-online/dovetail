@@ -11,7 +11,10 @@ use dovetail_core::eval::{load_corpus, Fixture};
 use dovetail_core::{Detector, SampledInput, ShapeHeuristicDetector};
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 /// The column set DuckDB will actually produce: duplicate names get `_1`, `_2`
@@ -24,7 +27,11 @@ fn expected_loaded_columns(fx: &Fixture) -> Vec<String> {
         .iter()
         .map(|c| {
             let n = seen.entry(c.as_str()).or_insert(0);
-            let out = if *n == 0 { c.clone() } else { format!("{c}_{n}") };
+            let out = if *n == 0 {
+                c.clone()
+            } else {
+                format!("{c}_{n}")
+            };
             *n += 1;
             out
         })
@@ -49,7 +56,10 @@ fn emitted_sql_round_trips_through_duckdb() {
         );
 
         if let Err(e) = conn.execute_batch(&sql) {
-            failures.push(format!("{}: SQL failed to execute: {e}\n{sql}", fx.manifest.name));
+            failures.push(format!(
+                "{}: SQL failed to execute: {e}\n{sql}",
+                fx.manifest.name
+            ));
             continue;
         }
 
@@ -65,7 +75,9 @@ fn emitted_sql_round_trips_through_duckdb() {
 
         // Row count.
         let rows: usize = conn
-            .query_row(&format!("SELECT count(*) FROM \"{table}\""), [], |r| r.get::<_, i64>(0))
+            .query_row(&format!("SELECT count(*) FROM \"{table}\""), [], |r| {
+                r.get::<_, i64>(0)
+            })
             .map(|n| n as usize)
             .unwrap_or(usize::MAX);
         if rows != fx.manifest.row_count {
@@ -76,11 +88,17 @@ fn emitted_sql_round_trips_through_duckdb() {
         }
     }
 
-    assert!(failures.is_empty(), "round-trip failures:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "round-trip failures:\n{}",
+        failures.join("\n")
+    );
 }
 
 fn table_columns(conn: &duckdb::Connection, table: &str) -> Vec<String> {
-    let mut stmt = conn.prepare(&format!("SELECT * FROM \"{table}\" LIMIT 0")).unwrap();
+    let mut stmt = conn
+        .prepare(&format!("SELECT * FROM \"{table}\" LIMIT 0"))
+        .unwrap();
     let _ = stmt.query([]).unwrap();
     stmt.column_names().iter().map(|s| s.to_string()).collect()
 }

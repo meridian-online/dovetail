@@ -161,7 +161,12 @@ fn run_relate(args: Vec<String>) -> ExitCode {
             }
             EdgeStatus::Rejected => continue,
         };
-        println!("{mark}  {} -> {}  ({})", e.child.qualified(), e.parent.qualified(), e.reason);
+        println!(
+            "{mark}  {} -> {}  ({})",
+            e.child.qualified(),
+            e.parent.qualified(),
+            e.reason
+        );
     }
     eprintln!("\ndovetail relate: {accepted_n} accepted, {review_n} to review");
     if accepted_n > 0 {
@@ -240,7 +245,10 @@ fn run_survey(paths: &[PathBuf]) -> ExitCode {
         match survey_file(path, &detector, DuplicatePolicy::default(), None) {
             Ok(report) => {
                 print!("{}", report.render());
-                if let Outcome::Emitted { sql, descriptor, .. } = &report.outcome {
+                if let Outcome::Emitted {
+                    sql, descriptor, ..
+                } = &report.outcome
+                {
                     println!("{sql}");
                     // The Data Package descriptor the survey assembled: its Table
                     // Schema carries the finetype semantic types the guided typer

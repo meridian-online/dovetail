@@ -40,7 +40,11 @@ pub const DETECTION_CONFIDENCE_FLOOR: f32 = 0.5;
 #[derive(Debug, Clone)]
 pub enum Outcome {
     /// Confident detection: an emitted load and descriptor.
-    Emitted { rung: Rung, sql: String, descriptor: DataPackage },
+    Emitted {
+        rung: Rung,
+        sql: String,
+        descriptor: DataPackage,
+    },
     /// Under-confident detection: survey proposes rather than emits, and asks
     /// the analyst to confirm (the kill-condition pivot).
     SuggestConfirm { reason: String },
@@ -80,12 +84,26 @@ pub fn survey_file(
     } else {
         let source = path.to_string_lossy();
         let sql = emit_sql(&detection, &source, &name, policy);
-        let descriptor =
-            assemble(&detection, path, &name, Some(&format!("{name}.sql")), created)?;
-        Outcome::Emitted { rung: Rung::Sql, sql, descriptor }
+        let descriptor = assemble(
+            &detection,
+            path,
+            &name,
+            Some(&format!("{name}.sql")),
+            created,
+        )?;
+        Outcome::Emitted {
+            rung: Rung::Sql,
+            sql,
+            descriptor,
+        }
     };
 
-    Ok(SurveyReport { source: path.to_path_buf(), detection, policy, outcome })
+    Ok(SurveyReport {
+        source: path.to_path_buf(),
+        detection,
+        policy,
+        outcome,
+    })
 }
 
 impl SurveyReport {
@@ -120,12 +138,20 @@ impl SurveyReport {
 
 /// Resource/table name from a file stem, sanitised to a SQL-safe identifier.
 fn resource_name(path: &Path) -> String {
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("resource");
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("resource");
     let cleaned: String = stem
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect();
-    if cleaned.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(true) {
+    if cleaned
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(true)
+    {
         format!("t_{cleaned}")
     } else {
         cleaned

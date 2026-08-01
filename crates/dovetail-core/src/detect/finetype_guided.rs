@@ -102,9 +102,13 @@ impl Detector for FinetypeGuidedDetector {
             .columns
             .iter()
             .map(|c| {
-                let semantic_type =
-                    samples.get(&c.name).and_then(|vals| self.type_column(&c.name, vals));
-                Column { name: c.name.clone(), semantic_type }
+                let semantic_type = samples
+                    .get(&c.name)
+                    .and_then(|vals| self.type_column(&c.name, vals));
+                Column {
+                    name: c.name.clone(),
+                    semantic_type,
+                }
             })
             .collect();
 

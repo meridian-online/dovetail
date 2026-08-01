@@ -8,15 +8,26 @@ use dovetail_core::eval::load_corpus;
 use dovetail_core::{Detector, SampledInput, ShapeHeuristicDetector};
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 fn sql_for(fixture: &str) -> String {
     let corpus = load_corpus(repo_root().join("tests/fixtures")).unwrap();
-    let fx = corpus.iter().find(|f| f.manifest.name == fixture).expect("fixture");
+    let fx = corpus
+        .iter()
+        .find(|f| f.manifest.name == fixture)
+        .expect("fixture");
     let input = SampledInput::from_path(&fx.data_path).unwrap();
     let det = ShapeHeuristicDetector::new().detect(&input);
-    emit_sql(&det, fx.data_path.to_str().unwrap(), fixture, DuplicatePolicy::default())
+    emit_sql(
+        &det,
+        fx.data_path.to_str().unwrap(),
+        fixture,
+        DuplicatePolicy::default(),
+    )
 }
 
 #[test]
@@ -64,16 +75,29 @@ fn json_object_emits_auto_format() {
 #[test]
 fn duplicate_columns_get_a_rename_projection_and_policy_note() {
     let sql = sql_for("csv-dup-cols");
-    assert!(sql.contains("policy: Rename"), "policy note missing:\n{sql}");
+    assert!(
+        sql.contains("policy: Rename"),
+        "policy note missing:\n{sql}"
+    );
     // The second occurrences of id/name are aliased explicitly rather than dropped.
-    assert!(sql.contains("\"id_1\""), "renamed dup not projected:\n{sql}");
-    assert!(sql.contains("\"name_1\""), "renamed dup not projected:\n{sql}");
+    assert!(
+        sql.contains("\"id_1\""),
+        "renamed dup not projected:\n{sql}"
+    );
+    assert!(
+        sql.contains("\"name_1\""),
+        "renamed dup not projected:\n{sql}"
+    );
 }
 
 #[test]
 fn emission_is_a_single_select_per_load() {
     // Legibility: one CREATE ... AS SELECT, no procedural cleverness.
     let sql = sql_for("csv-simple");
-    assert_eq!(sql.matches("SELECT").count(), 1, "expected exactly one SELECT:\n{sql}");
+    assert_eq!(
+        sql.matches("SELECT").count(),
+        1,
+        "expected exactly one SELECT:\n{sql}"
+    );
     assert!(sql.contains("CREATE OR REPLACE TABLE"), "{sql}");
 }

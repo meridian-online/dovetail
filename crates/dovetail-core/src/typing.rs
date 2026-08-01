@@ -82,8 +82,7 @@ pub fn deterministic_semantic_type(values: &[String]) -> Option<String> {
         return None;
     }
     let tax = taxonomy();
-    finetype_core::deterministic_fast_path(tax, values)
-        .or_else(|| identifier_probe(tax, values))
+    finetype_core::deterministic_fast_path(tax, values).or_else(|| identifier_probe(tax, values))
 }
 
 /// Resolve an allowlisted identifier leaf from the sample, or abstain.
@@ -169,7 +168,10 @@ mod tests {
                 .expect("iso datetime must resolve");
         assert!(label.starts_with("datetime."), "got {label}");
         let fx = finetype_core::frictionless_for(&label).expect("datetime has a frictionless map");
-        assert_eq!(fx.ftype, "datetime", "an ISO timestamp must type as datetime, not string");
+        assert_eq!(
+            fx.ftype, "datetime",
+            "an ISO timestamp must type as datetime, not string"
+        );
     }
 
     #[test]
@@ -185,7 +187,10 @@ mod tests {
     #[test]
     fn declines_plain_integers_and_words() {
         assert_eq!(deterministic_semantic_type(&s(&["1", "2", "3"])), None);
-        assert_eq!(deterministic_semantic_type(&s(&["Ada", "Grace", "Alan"])), None);
+        assert_eq!(
+            deterministic_semantic_type(&s(&["Ada", "Grace", "Alan"])),
+            None
+        );
     }
 
     #[test]
@@ -298,7 +303,10 @@ mod tests {
         ]);
         let lei = finetype_core::checksum::resolve("lei").expect("the lei checksum exists");
         for v in &real_shaped {
-            assert!(lei(v), "{v} must carry valid ISO 7064 check digits for this test to mean anything");
+            assert!(
+                lei(v),
+                "{v} must carry valid ISO 7064 check digits for this test to mean anything"
+            );
             assert!(
                 !finetype_core::validate_value_for_label(v, "finance.securities.lei", taxonomy())
                     .expect("lei leaf exists")

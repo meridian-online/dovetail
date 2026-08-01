@@ -55,7 +55,9 @@ impl JaqOutput {
 /// on each, jq-style).
 pub fn run_jaq(program: &str, input: &[u8]) -> Result<JaqOutput, JaqError> {
     // Named filters from core + std + json (keys, map, select, ...).
-    let defs = jaq_core::defs().chain(jaq_std::defs()).chain(jaq_json::defs());
+    let defs = jaq_core::defs()
+        .chain(jaq_std::defs())
+        .chain(jaq_json::defs());
     let funs = jaq_core::funs::<data::JustLut<Val>>()
         .chain(jaq_std::funs())
         .chain(jaq_json::funs());
@@ -64,7 +66,10 @@ pub fn run_jaq(program: &str, input: &[u8]) -> Result<JaqOutput, JaqError> {
     let arena = Arena::default();
 
     // PASSTHROUGH: the program string is the File code, unmodified.
-    let file = File { code: program, path: () };
+    let file = File {
+        code: program,
+        path: (),
+    };
     let modules = loader
         .load(&arena, file)
         .map_err(|e| JaqError::Load(format!("{e:?}")))?;
@@ -84,5 +89,8 @@ pub fn run_jaq(program: &str, input: &[u8]) -> Result<JaqOutput, JaqError> {
         }
     }
 
-    Ok(JaqOutput { program: program.to_string(), values })
+    Ok(JaqOutput {
+        program: program.to_string(),
+        values,
+    })
 }
