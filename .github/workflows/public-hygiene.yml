@@ -29,7 +29,6 @@ jobs:
       - name: hygiene gate self-test
         run: ./scripts/check-public-hygiene-selftest.sh
 
-      # No `working-directory`. The gate cd's to the repo root itself and scans
-      # every tracked file in the repository.
+      # No `working-directory`. The gate cd's to the repo root itself.
       - name: private planning identifiers
         run: ./scripts/check-public-hygiene.sh

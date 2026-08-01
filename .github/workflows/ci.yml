@@ -56,9 +56,10 @@ jobs:
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # rustdoc, for the one thing fmt/clippy/test cannot see: a doc link naming
-      # something that does not exist. `cargo doc` resolves intra-doc links and
-      # warns on the ones it cannot; `-D warnings` makes that a failure.
+      # rustdoc, for defects that live in doc comments — among them a doc link
+      # naming something that does not exist. `cargo doc` resolves intra-doc
+      # links and warns on the ones it cannot, and rustdoc's other doc lints
+      # warn here as well; `-D warnings` turns those warnings into a failure.
       #
       # `--no-deps` so a warning in a dependency's docs cannot redden this repo.
       # `--document-private-items` so the links written inside private items are
