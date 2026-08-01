@@ -58,7 +58,10 @@ pub struct Column {
 
 impl Column {
     pub fn untyped(name: impl Into<String>) -> Self {
-        Column { name: name.into(), semantic_type: None }
+        Column {
+            name: name.into(),
+            semantic_type: None,
+        }
     }
 }
 
@@ -68,11 +71,11 @@ pub struct Detection {
     pub format: Format,
     pub structure: Structure,
     pub columns: Vec<Column>,
-    /// Detector confidence in `[0,1]`. The detection-quality gate (ac-10) routes
+    /// Detector confidence in `[0,1]`. The detection-quality gate routes
     /// inputs below threshold to suggest-and-confirm.
     pub confidence: f32,
     /// Duplicate column names observed, if any. Survey surfaces an explicit
-    /// policy for these rather than letting a parser drop data silently (ac-11).
+    /// policy for these rather than letting a parser drop data silently.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub duplicate_columns: Vec<String>,
 }

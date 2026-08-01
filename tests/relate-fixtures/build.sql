@@ -1,4 +1,4 @@
--- Reproducible relate fixture (spec 2026-06-21-relate-discover-verify-render, ac-01).
+-- Reproducible relate fixture (spec 2026-06-21-relate-discover-verify-render).
 -- Four known cases, one per expected outcome. Build into a fresh DuckDB and run
 -- dovetail relate against it; expected statuses are in manifest.json.
 

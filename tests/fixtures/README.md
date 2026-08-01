@@ -1,10 +1,10 @@
 # Survey detection fixture corpus
 
 Ground-truth inputs for the survey detection eval (spec
-`2026-06-20-survey-detection-and-load`, ac-01). Each fixture is a directory
+`2026-06-20-survey-detection-and-load`). Each fixture is a directory
 holding one data file plus a `manifest.json` describing the expected detection
-result. The eval harness (ac-03) scores a detector by comparing its output
-against these manifests; the round-trip test (ac-07) checks that the emitted
+result. The eval harness scores a detector by comparing its output
+against these manifests; the round-trip test checks that the emitted
 `.sql` reproduces the manifest's row count and column set.
 
 ## Manifest schema

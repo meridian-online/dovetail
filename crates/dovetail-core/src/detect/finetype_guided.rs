@@ -1,4 +1,4 @@
-//! The finetype-guided detector — the model-backed arm of the ac-02 head-to-head.
+//! The finetype-guided detector — the model-backed arm of the head-to-head.
 //!
 //! It takes the same structural read as the shape-heuristic detector, then
 //! enriches each column with a semantic type from finetype-model's column
@@ -9,8 +9,8 @@
 //!
 //! Model artifacts are a runtime dependency. When a model directory is not
 //! configured or fails to load, the detector degrades to the structural read at
-//! reduced confidence rather than failing — so the eval (ac-03) and the
-//! detection-quality gate (ac-10) always have a result to score.
+//! reduced confidence rather than failing — so the eval and the
+//! detection-quality gate always have a result to score.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -102,9 +102,13 @@ impl Detector for FinetypeGuidedDetector {
             .columns
             .iter()
             .map(|c| {
-                let semantic_type =
-                    samples.get(&c.name).and_then(|vals| self.type_column(&c.name, vals));
-                Column { name: c.name.clone(), semantic_type }
+                let semantic_type = samples
+                    .get(&c.name)
+                    .and_then(|vals| self.type_column(&c.name, vals));
+                Column {
+                    name: c.name.clone(),
+                    semantic_type,
+                }
             })
             .collect();
 

@@ -1,7 +1,7 @@
 //! The shape-heuristic detector — pure structural inspection, no finetype. It
 //! sniffs the format and reads the row-level structure straight from the bytes:
 //! CSV/TSV headers, NDJSON first line, JSON top-level shape, Parquet footer.
-//! This is the no-finetype arm of the ac-02 head-to-head; it does not assign
+//! This is the no-finetype arm of the head-to-head; it does not assign
 //! semantic types to columns.
 
 use std::path::Path;
@@ -44,7 +44,13 @@ fn sniff_format(input: &SampledInput) -> Format {
     let trimmed = head.trim_start();
     if trimmed.starts_with('[') || trimmed.starts_with('{') {
         // One object per line → ndjson; otherwise a single JSON document.
-        if head.lines().take(2).filter(|l| l.trim_start().starts_with('{')).count() >= 2 {
+        if head
+            .lines()
+            .take(2)
+            .filter(|l| l.trim_start().starts_with('{'))
+            .count()
+            >= 2
+        {
             Format::Ndjson
         } else {
             Format::Json

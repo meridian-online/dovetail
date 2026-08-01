@@ -1,4 +1,4 @@
-//! ac-08 — every emitted datapackage.json validates against the vendored
+//! Every emitted datapackage.json validates against the vendored
 //! Frictionless profile, and the custom load-recipe property does not break
 //! conformance.
 
@@ -9,7 +9,10 @@ use dovetail_core::eval::load_corpus;
 use dovetail_core::{Detector, SampledInput, ShapeHeuristicDetector};
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 fn profile() -> serde_json::Value {
@@ -41,16 +44,23 @@ fn every_emitted_descriptor_validates_against_the_frictionless_profile() {
         // The custom recipe property is present...
         assert!(
             json["resources"][0].get("x-dovetailLoadRecipe").is_some(),
-            "{}: recipe property missing", fx.manifest.name
+            "{}: recipe property missing",
+            fx.manifest.name
         );
 
         // ...and the descriptor still conforms.
-        let errors: Vec<String> =
-            validator.iter_errors(&json).map(|e| format!("{} at {}", e, e.instance_path)).collect();
+        let errors: Vec<String> = validator
+            .iter_errors(&json)
+            .map(|e| format!("{} at {}", e, e.instance_path))
+            .collect();
         if !errors.is_empty() {
             failures.push(format!("{}:\n  {}", fx.manifest.name, errors.join("\n  ")));
         }
     }
 
-    assert!(failures.is_empty(), "conformance failures:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "conformance failures:\n{}",
+        failures.join("\n")
+    );
 }

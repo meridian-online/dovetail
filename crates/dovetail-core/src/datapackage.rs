@@ -1,11 +1,11 @@
-//! Data Package assembly (ac-06). survey serialises both models into one
+//! Data Package assembly. survey serialises both models into one
 //! Frictionless Data Package descriptor (`datapackage.json`) — the canonical
 //! artifact (choice 0002). This module builds the per-resource half: load
 //! recipe reference, Table Schema, and resource-level provenance carried on the
 //! standard fields (`bytes`, `hash`, `format`, `mediatype`).
 //!
 //! `foreignKeys` (the relationship half) is out of scope here — it belongs to
-//! relate (card 0002-relate).
+//! relate.
 
 use std::path::Path;
 
@@ -27,7 +27,10 @@ pub struct Field {
     pub format: Option<String>,
     /// dovetail's finetype semantic type, retained as a namespaced custom
     /// property alongside the standard `type`.
-    #[serde(rename = "x-dovetailSemanticType", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "x-dovetailSemanticType",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub semantic_type: Option<String>,
 }
 
@@ -125,10 +128,15 @@ impl Format {
 /// with no semantic type (the shape-heuristic detector) — and any label the map
 /// doesn't carry — fall back to `string`/no-format, the always-loadable default.
 fn field_of(col: &Column) -> Field {
-    let fx = col.semantic_type.as_deref().and_then(finetype_core::frictionless_for);
+    let fx = col
+        .semantic_type
+        .as_deref()
+        .and_then(finetype_core::frictionless_for);
     Field {
         name: col.name.clone(),
-        ty: fx.as_ref().map_or_else(|| "string".into(), |f| f.ftype.clone()),
+        ty: fx
+            .as_ref()
+            .map_or_else(|| "string".into(), |f| f.ftype.clone()),
         format: fx.and_then(|f| f.format),
         semantic_type: col.semantic_type.clone(),
     }
@@ -183,12 +191,19 @@ pub fn assemble(
         },
     };
 
-    Ok(DataPackage { schema: DATAPACKAGE_PROFILE.to_string(), resources: vec![resource] })
+    Ok(DataPackage {
+        schema: DATAPACKAGE_PROFILE.to_string(),
+        resources: vec![resource],
+    })
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }

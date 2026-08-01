@@ -6,5 +6,5 @@
   "row_count": 2,
   "columns": ["id", "name", "id", "name"],
   "duplicate_columns": ["id", "name"],
-  "notes": "duplicate column names; survey must surface a rename policy (ac-11)"
+  "notes": "duplicate column names; survey must surface a rename policy"
 }

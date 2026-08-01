@@ -1,4 +1,4 @@
-//! relate — discover how DuckDB tables relate (card 0002, spec
+//! relate — discover how DuckDB tables relate (spec
 //! 2026-06-21-relate-discover-verify-render).
 //!
 //! relate READS an existing DuckDB (the analyst loaded it via survey's emitted
@@ -110,7 +110,7 @@ pub struct Edge {
     pub reason: String,
 }
 
-// --- Tunable thresholds (ac-10/ac-04: pin the auto-accept boundary) ----------
+// --- Tunable thresholds (pin the auto-accept boundary) -----------------------
 
 /// Confidence at or above which an edge is "high-confidence".
 pub const CONF_HIGH: f64 = 0.6;
@@ -152,7 +152,9 @@ impl SemanticTypes {
     /// The leaf resolved for `table.column`, or `None` — both for "finetype
     /// declined to type it" and for "not a column of this database".
     pub fn get(&self, table: &str, column: &str) -> Option<&str> {
-        self.by_column.get(&(table.to_string(), column.to_string()))?.as_deref()
+        self.by_column
+            .get(&(table.to_string(), column.to_string()))?
+            .as_deref()
     }
 
     /// How many columns resolved to a semantic type.
@@ -209,8 +211,7 @@ pub fn discover_with_types(conn: &Connection, types: &SemanticTypes) -> duckdb::
             // typing is a second way through, so a pair whose names share nothing
             // and whose types share everything is still measured.
             let name_similarity = name_similarity(&child.col, &parent.col);
-            let semantic_similarity =
-                semantic_similarity(&child.col, child_leaf, parent_leaf);
+            let semantic_similarity = semantic_similarity(&child.col, child_leaf, parent_leaf);
             if name_similarity.max(semantic_similarity) < 0.3 {
                 continue;
             }
@@ -258,7 +259,10 @@ pub fn run_path(path: &str) -> duckdb::Result<RelateRun> {
 
 /// Accepted edges only (choice 0007) — what compiles to constraint DDL.
 pub fn accepted(edges: &[Edge]) -> Vec<&Edge> {
-    edges.iter().filter(|e| e.status == EdgeStatus::Accepted).collect()
+    edges
+        .iter()
+        .filter(|e| e.status == EdgeStatus::Accepted)
+        .collect()
 }
 
 /// How many non-null values per column relate samples from the data to ask
@@ -277,7 +281,7 @@ const FIELD_SAMPLE_N: usize = 500;
 /// self-assembling artifact that carries BOTH halves of the model: every field is
 /// typed with a finetype semantic type (not the coarse SQL family), and the
 /// discovered foreignKeys ride inside each resource's Table Schema with their
-/// evidence + confidence (ac-05 / ac-07). Non-rejected edges (accepted +
+/// evidence + confidence. Non-rejected edges (accepted +
 /// suggested) are written, carrying their status; rejected coincidences are left
 /// out. This is what `dovetail relate` writes/updates — the canonical
 /// relationship-model output (choice 0003), now semantically typed.
@@ -290,7 +294,11 @@ const FIELD_SAMPLE_N: usize = 500;
 /// integer stays `integer`, an email becomes `string`/`email`, an ISO timestamp
 /// becomes `datetime`. Field shape matches survey's descriptor exactly
 /// (`datapackage::Field`), so the two flows self-assemble into one format.
-pub fn build_descriptor(conn: &Connection, edges: &[Edge], source: &str) -> duckdb::Result<serde_json::Value> {
+pub fn build_descriptor(
+    conn: &Connection,
+    edges: &[Edge],
+    source: &str,
+) -> duckdb::Result<serde_json::Value> {
     let types = semantic_types(conn)?;
     build_descriptor_with_types(conn, edges, source, &types)
 }
@@ -317,34 +325,34 @@ pub fn build_descriptor_with_types(
 
     let mut resources: Vec<serde_json::Value> = Vec::with_capacity(table_order.len());
     for table in &table_order {
-            let mut fields: Vec<serde_json::Value> = Vec::new();
-            for c in columns.iter().filter(|c| &c.col.table == table) {
-                let semantic = types.get(&c.col.table, &c.col.column).map(str::to_string);
-                let field = typed_field(&c.col.column, &c.ty, semantic);
-                fields.push(serde_json::to_value(&field).expect("Field serializes"));
-            }
-            let fks: Vec<serde_json::Value> = edges
-                .iter()
-                .filter(|e| e.status != EdgeStatus::Rejected && &e.child.table == table)
-                .map(|e| serde_json::to_value(e.to_foreign_key()).unwrap())
-                .collect();
-            let mut schema = json!({ "fields": fields });
-            if !fks.is_empty() {
-                schema["foreignKeys"] = json!(fks);
-            }
-            // Relative to the descriptor (Frictionless 2.0 rejects absolute
-            // paths): the database basename plus a `#table` fragment. dovetail
-            // co-locates the descriptor with the .duckdb file it describes.
-            let db = std::path::Path::new(source)
-                .file_name()
-                .map_or_else(|| source.to_string(), |n| n.to_string_lossy().into_owned());
-            resources.push(json!({
-                "name": table,
-                "path": format!("{db}#{table}"),
-                "format": "duckdb",
-                "mediatype": "application/vnd.duckdb",
-                "schema": schema,
-            }));
+        let mut fields: Vec<serde_json::Value> = Vec::new();
+        for c in columns.iter().filter(|c| &c.col.table == table) {
+            let semantic = types.get(&c.col.table, &c.col.column).map(str::to_string);
+            let field = typed_field(&c.col.column, &c.ty, semantic);
+            fields.push(serde_json::to_value(&field).expect("Field serializes"));
+        }
+        let fks: Vec<serde_json::Value> = edges
+            .iter()
+            .filter(|e| e.status != EdgeStatus::Rejected && &e.child.table == table)
+            .map(|e| serde_json::to_value(e.to_foreign_key()).unwrap())
+            .collect();
+        let mut schema = json!({ "fields": fields });
+        if !fks.is_empty() {
+            schema["foreignKeys"] = json!(fks);
+        }
+        // Relative to the descriptor (Frictionless 2.0 rejects absolute
+        // paths): the database basename plus a `#table` fragment. dovetail
+        // co-locates the descriptor with the .duckdb file it describes.
+        let db = std::path::Path::new(source)
+            .file_name()
+            .map_or_else(|| source.to_string(), |n| n.to_string_lossy().into_owned());
+        resources.push(json!({
+            "name": table,
+            "path": format!("{db}#{table}"),
+            "format": "duckdb",
+            "mediatype": "application/vnd.duckdb",
+            "schema": schema,
+        }));
     }
 
     Ok(json!({
@@ -361,14 +369,12 @@ pub fn build_descriptor_with_types(
 ///
 /// `semantic` is passed in rather than recomputed: the descriptor must describe
 /// the same type the discovery gate scored on.
-fn typed_field(
-    column: &str,
-    sql_ty: &str,
-    semantic: Option<String>,
-) -> crate::datapackage::Field {
+fn typed_field(column: &str, sql_ty: &str, semantic: Option<String>) -> crate::datapackage::Field {
     use crate::datapackage::Field;
 
-    let fx = semantic.as_deref().and_then(finetype_core::frictionless_for);
+    let fx = semantic
+        .as_deref()
+        .and_then(finetype_core::frictionless_for);
 
     match fx {
         Some(fx) => Field {
@@ -416,7 +422,7 @@ fn frictionless_type(ty: &str) -> &'static str {
     }
 }
 
-// --- Schema read (ac-02) -----------------------------------------------------
+// --- Schema read -------------------------------------------------------------
 
 struct TypedColumn {
     col: ColumnRef,
@@ -432,7 +438,10 @@ fn read_columns(conn: &Connection) -> duckdb::Result<Vec<TypedColumn>> {
     )?;
     let rows = stmt.query_map([], |r| {
         Ok(TypedColumn {
-            col: ColumnRef { table: r.get(0)?, column: r.get(1)? },
+            col: ColumnRef {
+                table: r.get(0)?,
+                column: r.get(1)?,
+            },
             ty: r.get(2)?,
         })
     })?;
@@ -452,14 +461,18 @@ fn type_family(ty: &str) -> &'static str {
         "text"
     } else if t.contains("BOOL") {
         "bool"
-    } else if t.contains("DOUBLE") || t.contains("REAL") || t.contains("DECIMAL") || t.contains("FLOAT") {
+    } else if t.contains("DOUBLE")
+        || t.contains("REAL")
+        || t.contains("DECIMAL")
+        || t.contains("FLOAT")
+    {
         "float"
     } else {
         "other"
     }
 }
 
-// --- Evidence + verification + scoring (ac-02/03/04) --------------------------
+// --- Evidence + verification + scoring ---------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 fn score_edge(
@@ -489,8 +502,11 @@ fn score_edge(
         [],
         |r| r.get(0),
     )?;
-    let parent_total: i64 =
-        conn.query_row(&format!("SELECT count(*) FROM {pt} WHERE {pc} IS NOT NULL"), [], |r| r.get(0))?;
+    let parent_total: i64 = conn.query_row(
+        &format!("SELECT count(*) FROM {pt} WHERE {pc} IS NOT NULL"),
+        [],
+        |r| r.get(0),
+    )?;
     let parent_distinct: i64 = conn.query_row(
         &format!("SELECT count(DISTINCT {pc}) FROM {pt} WHERE {pc} IS NOT NULL"),
         [],
@@ -518,11 +534,17 @@ fn score_edge(
         |r| r.get(0),
     )?;
 
-    let value_overlap =
-        if child_distinct == 0 { 0.0 } else { overlap_distinct as f64 / child_distinct as f64 };
+    let value_overlap = if child_distinct == 0 {
+        0.0
+    } else {
+        overlap_distinct as f64 / child_distinct as f64
+    };
     let parent_unique = parent_total > 0 && parent_total == parent_distinct;
-    let parent_distinct_ratio =
-        if parent_total == 0 { 0.0 } else { parent_distinct as f64 / parent_total as f64 };
+    let parent_distinct_ratio = if parent_total == 0 {
+        0.0
+    } else {
+        parent_distinct as f64 / parent_total as f64
+    };
     let parent_key_likeness =
         0.6 * key_signal(&parent.column, parent_leaf) + 0.4 * parent_distinct_ratio;
 
@@ -547,12 +569,24 @@ fn score_edge(
         parent_distinct,
         parent_total,
     };
-    let verification = Verification { orphan_count, child_total, parent_unique };
+    let verification = Verification {
+        orphan_count,
+        child_total,
+        parent_unique,
+    };
 
     let (status, reason) = assign_status(&verification, confidence);
     let (status, reason) = demote_on_mismatch(status, reason, &evidence);
 
-    Ok(Some(Edge { child: child.clone(), parent: parent.clone(), evidence, verification, confidence, status, reason }))
+    Ok(Some(Edge {
+        child: child.clone(),
+        parent: parent.clone(),
+        evidence,
+        verification,
+        confidence,
+        status,
+        reason,
+    }))
 }
 
 /// A semantic disagreement DEMOTES an accepted edge to `Suggested`. It never
@@ -575,7 +609,10 @@ fn demote_on_mismatch(
         return (status, reason);
     }
     let child = evidence.child_semantic_type.as_deref().unwrap_or("untyped");
-    let parent = evidence.parent_semantic_type.as_deref().unwrap_or("untyped");
+    let parent = evidence
+        .parent_semantic_type
+        .as_deref()
+        .unwrap_or("untyped");
     (
         EdgeStatus::Suggested,
         format!(
@@ -585,8 +622,8 @@ fn demote_on_mismatch(
     )
 }
 
-/// Status from verification + confidence (ac-04). Verification is the safety
-/// gate (ac-03): only an integrity-holding edge against a unique parent
+/// Status from verification + confidence. Verification is the safety
+/// gate: only an integrity-holding edge against a unique parent
 /// auto-accepts. The boolean trap is caught because a non-unique parent never
 /// reaches Accepted regardless of naming.
 fn assign_status(v: &Verification, confidence: f64) -> (EdgeStatus, String) {
@@ -607,13 +644,23 @@ fn assign_status(v: &Verification, confidence: f64) -> (EdgeStatus, String) {
         };
         (
             EdgeStatus::Suggested,
-            format!("plausible ({why}); surfaced for review — confidence {:.2}", confidence),
+            format!(
+                "plausible ({why}); surfaced for review — confidence {:.2}",
+                confidence
+            ),
         )
     } else {
         let why = if v.orphan_rate() > ORPHAN_TOLERANCE {
-            format!("{} orphan row(s) ({:.0}%)", v.orphan_count, v.orphan_rate() * 100.0)
+            format!(
+                "{} orphan row(s) ({:.0}%)",
+                v.orphan_count,
+                v.orphan_rate() * 100.0
+            )
         } else {
-            format!("confidence {:.2} below {:.2} (coincidental overlap)", confidence, CONF_HIGH)
+            format!(
+                "confidence {:.2} below {:.2} (coincidental overlap)",
+                confidence, CONF_HIGH
+            )
         };
         (EdgeStatus::Rejected, format!("rejected: {why}"))
     }
@@ -672,7 +719,11 @@ fn key_signal(col: &str, leaf: Option<&str>) -> f64 {
 /// primary key. That is a fact about the column's ROLE, which typing cannot
 /// establish — two tables keyed by UUID both have `id` columns, and neither
 /// references the other.
-fn semantic_similarity(child: &ColumnRef, child_leaf: Option<&str>, parent_leaf: Option<&str>) -> f64 {
+fn semantic_similarity(
+    child: &ColumnRef,
+    child_leaf: Option<&str>,
+    parent_leaf: Option<&str>,
+) -> f64 {
     if child.column.eq_ignore_ascii_case("id") {
         return 0.0;
     }
@@ -736,13 +787,13 @@ fn quote(ident: &str) -> String {
     format!("\"{}\"", ident.replace('"', "\"\""))
 }
 
-// --- Renders (ac-05 / ac-06) -------------------------------------------------
+// --- Renders -----------------------------------------------------------------
 
 use crate::datapackage::{ForeignKey, ForeignKeyReference};
 
 impl Edge {
     /// Build the Frictionless foreignKey entry for this edge, carrying status,
-    /// confidence and evidence as custom properties (ac-05, choice 0003).
+    /// confidence and evidence as custom properties (choice 0003).
     pub fn to_foreign_key(&self) -> ForeignKey {
         ForeignKey {
             fields: vec![self.child.column.clone()],
@@ -768,7 +819,7 @@ impl Edge {
         }
     }
 
-    /// Standard portable constraint DDL for an accepted edge (ac-06). Emitted in
+    /// Standard portable constraint DDL for an accepted edge. Emitted in
     /// ALTER form — legible, and accepted by standard SQL engines (Postgres). Note
     /// DuckDB only enforces FKs declared at CREATE-table time, so this artifact is
     /// the reviewable migration, not something dovetail runs (choice 0001).
@@ -785,7 +836,7 @@ impl Edge {
     }
 }
 
-/// Constraint DDL for every accepted edge, in stable order (ac-06). Only accepted
+/// Constraint DDL for every accepted edge, in stable order. Only accepted
 /// edges compile (choice 0007).
 pub fn constraint_ddl(edges: &[Edge]) -> String {
     let mut accepted: Vec<&Edge> = accepted(edges);

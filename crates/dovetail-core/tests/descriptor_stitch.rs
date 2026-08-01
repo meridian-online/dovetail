@@ -14,7 +14,10 @@ use std::path::{Path, PathBuf};
 use dovetail_core::relate::{build_descriptor, discover};
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 /// A messy, multi-table fixture: value-conclusive semantic columns (email, ISO
@@ -89,7 +92,10 @@ fn one_flow_yields_semantic_types_and_evidence_bearing_foreign_keys() {
     // ISO timestamp → Frictionless `datetime` — a genuinely non-string type the
     // coarse SQL-family mapping (VARCHAR → string) could never have produced.
     let opened = field(&descriptor, "accounts", "opened_at");
-    assert_eq!(opened["type"], "datetime", "ISO timestamp must type as datetime, got {opened}");
+    assert_eq!(
+        opened["type"], "datetime",
+        "ISO timestamp must type as datetime, got {opened}"
+    );
     assert!(opened["x-dovetailSemanticType"]
         .as_str()
         .unwrap()
@@ -98,7 +104,10 @@ fn one_flow_yields_semantic_types_and_evidence_bearing_foreign_keys() {
     // UUID → string/uuid with the semantic leaf recorded.
     let uuid = field(&descriptor, "accounts", "account_uuid");
     assert_eq!(uuid["format"], "uuid");
-    assert_eq!(uuid["x-dovetailSemanticType"], "representation.identifier.uuid");
+    assert_eq!(
+        uuid["x-dovetailSemanticType"],
+        "representation.identifier.uuid"
+    );
 
     // A plain surrogate key finetype cannot conclusively type stays `integer`
     // (SQL-family fallback), never mistyped — the id is still a clean integer.
@@ -114,7 +123,10 @@ fn one_flow_yields_semantic_types_and_evidence_bearing_foreign_keys() {
         .iter()
         .flat_map(|r| r["schema"]["fields"].as_array().unwrap())
         .any(|f| f.get("x-dovetailSemanticType").is_some() && f["type"] != "string");
-    assert!(semantic_nonstring, "expected at least one non-string finetype semantic field");
+    assert!(
+        semantic_nonstring,
+        "expected at least one non-string finetype semantic field"
+    );
 
     // --- (b) the SAME descriptor carries evidence-bearing foreignKeys -----------
 
@@ -124,7 +136,9 @@ fn one_flow_yields_semantic_types_and_evidence_bearing_foreign_keys() {
         .iter()
         .find(|r| r["name"] == "logins")
         .expect("logins resource");
-    let fks = logins["schema"]["foreignKeys"].as_array().expect("foreignKeys present");
+    let fks = logins["schema"]["foreignKeys"]
+        .as_array()
+        .expect("foreignKeys present");
     let fk = fks
         .iter()
         .find(|fk| fk["reference"]["resource"] == "accounts")
@@ -136,8 +150,15 @@ fn one_flow_yields_semantic_types_and_evidence_bearing_foreign_keys() {
     // Confidence + evidence ride on the foreign key.
     assert!(fk["x-dovetailConfidence"].as_f64().unwrap() > 0.0);
     let ev = &fk["x-dovetailEvidence"];
-    assert!(ev["parentUnique"].as_bool().unwrap(), "accounts.id is the unique parent key");
-    assert_eq!(ev["orphanCount"].as_i64().unwrap(), 0, "the FK holds — no orphans");
+    assert!(
+        ev["parentUnique"].as_bool().unwrap(),
+        "accounts.id is the unique parent key"
+    );
+    assert_eq!(
+        ev["orphanCount"].as_i64().unwrap(),
+        0,
+        "the FK holds — no orphans"
+    );
     assert!(ev["valueOverlap"].as_f64().unwrap() > 0.0);
     assert!(ev["nameSimilarity"].as_f64().unwrap() > 0.0);
 
@@ -148,7 +169,13 @@ fn one_flow_yields_semantic_types_and_evidence_bearing_foreign_keys() {
             .unwrap();
     let schema: serde_json::Value = serde_json::from_str(&schema_text).unwrap();
     let validator = jsonschema::validator_for(&schema).expect("compile profile");
-    let errors: Vec<String> =
-        validator.iter_errors(&descriptor).map(|e| format!("{e} at {}", e.instance_path)).collect();
-    assert!(errors.is_empty(), "stitched descriptor not conformant:\n{}", errors.join("\n"));
+    let errors: Vec<String> = validator
+        .iter_errors(&descriptor)
+        .map(|e| format!("{e} at {}", e.instance_path))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "stitched descriptor not conformant:\n{}",
+        errors.join("\n")
+    );
 }

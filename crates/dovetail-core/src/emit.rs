@@ -1,27 +1,22 @@
-//! SQL emission (ac-05). Turn a [`Detection`] into a standalone DuckDB `.sql`
+//! SQL emission. Turn a [`Detection`] into a standalone DuckDB `.sql`
 //! that loads the input natively. The SQL is plain and reviewable — legibility
 //! is the output value (the tabletop's load-bearing value): a reviewer reads
 //! exactly which reader and parameters run, with no cleverness to decode.
 //!
 //! Emission never touches DuckDB — it produces text. DuckDB executes only in the
-//! round-trip test (ac-07), never on survey's own path (choice 0001).
+//! round-trip test, never on survey's own path (choice 0001).
 
 use crate::structure::{Detection, Format, Structure};
 
 /// The duplicate-column policy survey records when an input has repeated column
-/// names (ac-11). `Rename` is the default — deterministic, and keeps every
+/// names. `Rename` is the default — deterministic, and keeps every
 /// column's data rather than dropping silently (review-spec finding 4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DuplicatePolicy {
+    #[default]
     Rename,
     KeepFirst,
     KeepLast,
-}
-
-impl Default for DuplicatePolicy {
-    fn default() -> Self {
-        DuplicatePolicy::Rename
-    }
 }
 
 /// A single-quoted SQL string literal with embedded quotes escaped.
@@ -34,10 +29,16 @@ fn sql_str(s: &str) -> String {
 fn read_call(det: &Detection, source: &str) -> String {
     match det.format {
         Format::Csv => format!("read_csv({}, header = true, delim = ',')", sql_str(source)),
-        Format::Tsv => format!("read_csv({}, header = true, delim = '\\t')", sql_str(source)),
+        Format::Tsv => format!(
+            "read_csv({}, header = true, delim = '\\t')",
+            sql_str(source)
+        ),
         Format::Parquet => format!("read_parquet({})", sql_str(source)),
         Format::Ndjson => {
-            format!("read_json({}, format = 'newline_delimited')", sql_str(source))
+            format!(
+                "read_json({}, format = 'newline_delimited')",
+                sql_str(source)
+            )
         }
         Format::Json => match det.structure {
             Structure::RecordsArray => format!("read_json({}, format = 'array')", sql_str(source)),
@@ -79,7 +80,9 @@ pub fn emit_sql(
     // no column's data is dropped. With no duplicates (the common case) the load
     // is a plain SELECT *.
     if det.duplicate_columns.is_empty() || policy != DuplicatePolicy::Rename {
-        sql.push_str(&format!("CREATE OR REPLACE TABLE {table} AS\nSELECT * FROM {read};\n"));
+        sql.push_str(&format!(
+            "CREATE OR REPLACE TABLE {table} AS\nSELECT * FROM {read};\n"
+        ));
     } else {
         let projection = renamed_projection(det);
         sql.push_str(&format!(

@@ -31,7 +31,7 @@ jaq-std = "3"
 jaq-json = "2"
 
 [dev-dependencies]
-# ac-08: descriptor conformance is checked in the test suite only — jsonschema
+# Descriptor conformance is checked in the test suite only — jsonschema
 # stays out of the runtime dependency graph.
 jsonschema = "0.26"
 serde_yaml = "0.9.34"

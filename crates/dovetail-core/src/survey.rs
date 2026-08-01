@@ -3,10 +3,10 @@
 //! human-facing report.
 //!
 //! This module is the home of three behaviours:
-//! - **Rung reporting (ac-09):** every input reports the chosen rung and why.
-//! - **Detection-quality gate (ac-10):** an under-confident detection routes to
+//! - **Rung reporting:** every input reports the chosen rung and why.
+//! - **Detection-quality gate:** an under-confident detection routes to
 //!   suggest-and-confirm instead of emit-and-trust.
-//! - **Duplicate-column policy (ac-11):** duplicates are surfaced with the
+//! - **Duplicate-column policy:** duplicates are surfaced with the
 //!   explicit policy applied, never dropped silently.
 
 use std::path::{Path, PathBuf};
@@ -33,14 +33,18 @@ impl Rung {
 
 /// Per-input confidence floor for the detection-quality gate. A detection below
 /// this routes to suggest-and-confirm. The corpus-level ≥90% bar is asserted
-/// separately by the eval (ac-10's two mechanisms).
+/// separately by the eval.
 pub const DETECTION_CONFIDENCE_FLOOR: f32 = 0.5;
 
 /// What survey decided for one input.
 #[derive(Debug, Clone)]
 pub enum Outcome {
     /// Confident detection: an emitted load and descriptor.
-    Emitted { rung: Rung, sql: String, descriptor: DataPackage },
+    Emitted {
+        rung: Rung,
+        sql: String,
+        descriptor: DataPackage,
+    },
     /// Under-confident detection: survey proposes rather than emits, and asks
     /// the analyst to confirm (the kill-condition pivot).
     SuggestConfirm { reason: String },
@@ -63,8 +67,7 @@ pub fn survey_file(
     policy: DuplicatePolicy,
     created: Option<String>,
 ) -> std::io::Result<SurveyReport> {
-    let input = SampledInput::from_path(path)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let input = SampledInput::from_path(path).map_err(std::io::Error::other)?;
     let detection = detector.detect(&input);
     let name = resource_name(path);
 
@@ -81,12 +84,26 @@ pub fn survey_file(
     } else {
         let source = path.to_string_lossy();
         let sql = emit_sql(&detection, &source, &name, policy);
-        let descriptor =
-            assemble(&detection, path, &name, Some(&format!("{name}.sql")), created)?;
-        Outcome::Emitted { rung: Rung::Sql, sql, descriptor }
+        let descriptor = assemble(
+            &detection,
+            path,
+            &name,
+            Some(&format!("{name}.sql")),
+            created,
+        )?;
+        Outcome::Emitted {
+            rung: Rung::Sql,
+            sql,
+            descriptor,
+        }
     };
 
-    Ok(SurveyReport { source: path.to_path_buf(), detection, policy, outcome })
+    Ok(SurveyReport {
+        source: path.to_path_buf(),
+        detection,
+        policy,
+        outcome,
+    })
 }
 
 impl SurveyReport {
@@ -121,12 +138,20 @@ impl SurveyReport {
 
 /// Resource/table name from a file stem, sanitised to a SQL-safe identifier.
 fn resource_name(path: &Path) -> String {
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("resource");
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("resource");
     let cleaned: String = stem
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect();
-    if cleaned.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(true) {
+    if cleaned
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(true)
+    {
         format!("t_{cleaned}")
     } else {
         cleaned

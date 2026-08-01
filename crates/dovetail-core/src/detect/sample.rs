@@ -21,7 +21,10 @@ pub struct SampledInput {
 #[derive(Debug, thiserror::Error)]
 pub enum SampleError {
     #[error("reading {path}: {source}")]
-    Io { path: PathBuf, source: std::io::Error },
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 /// How many bytes to read as the sample head. Enough to cover a JSON array's
@@ -32,13 +35,19 @@ impl SampledInput {
     /// Read a bounded sample from a path.
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, SampleError> {
         let path = path.as_ref().to_path_buf();
-        let bytes = read_head(&path, SAMPLE_BYTES)
-            .map_err(|source| SampleError::Io { path: path.clone(), source })?;
+        let bytes = read_head(&path, SAMPLE_BYTES).map_err(|source| SampleError::Io {
+            path: path.clone(),
+            source,
+        })?;
         let extension_hint = path
             .extension()
             .and_then(|e| e.to_str())
             .and_then(Format::from_extension);
-        Ok(SampledInput { path, extension_hint, head: bytes })
+        Ok(SampledInput {
+            path,
+            extension_hint,
+            head: bytes,
+        })
     }
 
     /// The sample head decoded as UTF-8 (lossy), for the text-format detectors.

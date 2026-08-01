@@ -1,4 +1,4 @@
-//! Detection eval harness (ac-03). Runs one or more [`Detector`]s over a fixture
+//! Detection eval harness. Runs one or more [`Detector`]s over a fixture
 //! corpus and scores each by row-structure identification hit-rate — an exact
 //! full-structure match against each fixture's manifest (review-spec finding 2).
 //! The result renders to a markdown table for the reproducible eval record.
@@ -46,10 +46,16 @@ pub fn load_corpus(dir: impl AsRef<Path>) -> std::io::Result<Vec<Fixture>> {
         }
         let text = std::fs::read_to_string(&manifest_path)?;
         let manifest: FixtureManifest = serde_json::from_str(&text).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{manifest_path:?}: {e}"))
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("{manifest_path:?}: {e}"),
+            )
         })?;
         let data_path = entry.path().join(&manifest.file);
-        out.push(Fixture { manifest, data_path });
+        out.push(Fixture {
+            manifest,
+            data_path,
+        });
     }
     out.sort_by(|a, b| a.manifest.name.cmp(&b.manifest.name));
     Ok(out)
@@ -123,13 +129,23 @@ pub fn eval_detector(
                 fx.manifest.columns,
             )
         });
-        scores.push(FixtureScore { fixture: fx.manifest.name.clone(), matched, detail });
+        scores.push(FixtureScore {
+            fixture: fx.manifest.name.clone(),
+            matched,
+            detail,
+        });
     }
-    EvalResult { detector: detector.name().to_string(), mode: mode.into(), total: corpus.len(), hits, scores }
+    EvalResult {
+        detector: detector.name().to_string(),
+        mode: mode.into(),
+        total: corpus.len(),
+        hits,
+        scores,
+    }
 }
 
-/// Render eval results as a markdown report — the reproducible eval record
-/// (ac-03 deliverable). `date` is passed in (the workflow stamps it).
+/// Render eval results as a markdown report — the reproducible eval record.
+/// `date` is passed in (the workflow stamps it).
 pub fn render_report(results: &[EvalResult], corpus_label: &str, date: &str) -> String {
     let mut s = String::new();
     s.push_str(&format!("# Detection eval — {date}\n\n"));
@@ -171,14 +187,20 @@ pub fn render_report(results: &[EvalResult], corpus_label: &str, date: &str) -> 
         }
     }
 
-    let misses: Vec<&FixtureScore> =
-        results.iter().flat_map(|r| r.scores.iter()).filter(|s| !s.matched).collect();
+    let misses: Vec<&FixtureScore> = results
+        .iter()
+        .flat_map(|r| r.scores.iter())
+        .filter(|s| !s.matched)
+        .collect();
     if !misses.is_empty() {
         s.push_str("\n## Misses\n\n");
         for r in results {
             for sc in r.scores.iter().filter(|s| !s.matched) {
                 if let Some(detail) = &sc.detail {
-                    s.push_str(&format!("- **{}** / {}: {}\n", r.detector, sc.fixture, detail));
+                    s.push_str(&format!(
+                        "- **{}** / {}: {}\n",
+                        r.detector, sc.fixture, detail
+                    ));
                 }
             }
         }
