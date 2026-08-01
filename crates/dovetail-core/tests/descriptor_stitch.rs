@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use dovetail_core::relate::{build_descriptor, discover};
+use dovetail_core::relate::{build_descriptor, discover, Edge, CONF_HIGH};
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -54,6 +54,47 @@ fn build_messy_fixture() -> duckdb::Connection {
     )
     .expect("build messy fixture");
     conn
+}
+
+/// One line per candidate edge relate scored: the evidence terms `score_edge`
+/// builds `confidence` from, and the terms `assign_status` and
+/// `demote_on_mismatch` read alongside it.
+///
+/// A missing foreign key is reported by its absence, which says the key is not
+/// there and stops. Whether it is there depends on `confidence` and on the
+/// `orphanCount`, `childTotal`, `parentUnique` and `semanticMismatch` those two
+/// functions read, so a bare absence leaves a reader to guess which of them
+/// moved.
+fn edge_report(edges: &[Edge]) -> String {
+    if edges.is_empty() {
+        return "  relate scored no candidate edge at all".to_string();
+    }
+    edges
+        .iter()
+        .map(|e| {
+            format!(
+                "  {} -> {}  status={} confidence={:.3} nameSimilarity={:.3} \
+                 semanticSimilarity={:.3} valueOverlap={:.3} parentKeyLikeness={:.3} \
+                 semanticMismatch={} parentUnique={} orphanCount={} childTotal={} \
+                 childType={:?} parentType={:?}",
+                e.child.qualified(),
+                e.parent.qualified(),
+                e.status.as_str(),
+                e.confidence,
+                e.evidence.name_similarity,
+                e.evidence.semantic_similarity,
+                e.evidence.value_overlap,
+                e.evidence.parent_key_likeness,
+                e.evidence.semantic_mismatch,
+                e.verification.parent_unique,
+                e.verification.orphan_count,
+                e.verification.child_total,
+                e.evidence.child_semantic_type,
+                e.evidence.parent_semantic_type,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Find a resource's field by name in the assembled descriptor.
@@ -138,18 +179,72 @@ fn one_flow_yields_semantic_types_and_evidence_bearing_foreign_keys() {
         .expect("logins resource");
     let fks = logins["schema"]["foreignKeys"]
         .as_array()
-        .expect("foreignKeys present");
+        .unwrap_or_else(|| {
+            panic!(
+                "logins carries no foreignKeys; relate scored:\n{}",
+                edge_report(&edges)
+            )
+        });
     let fk = fks
         .iter()
         .find(|fk| fk["reference"]["resource"] == "accounts")
-        .expect("logins.account_id -> accounts.id foreign key");
+        .unwrap_or_else(|| {
+            panic!(
+                "no logins.account_id -> accounts.id foreign key; relate scored:\n{}",
+                edge_report(&edges)
+            )
+        });
 
     assert_eq!(fk["fields"][0], "account_id");
     assert_eq!(fk["reference"]["fields"][0], "id");
-    assert_eq!(fk["x-dovetailStatus"], "accepted");
-    // Confidence + evidence ride on the foreign key.
-    assert!(fk["x-dovetailConfidence"].as_f64().unwrap() > 0.0);
+    assert_eq!(
+        fk["x-dovetailStatus"],
+        "accepted",
+        "relate scored:\n{}",
+        edge_report(&edges)
+    );
+
+    // Confidence + evidence ride on the foreign key, and this fixture determines
+    // each term exactly: the child column is spelled `<parent singular>_id`, its
+    // four distinct values are all present in the parent, and the parent is a
+    // uniquely-valued column named `id`. Pinning the terms rather than asserting
+    // each is above zero is what makes a shifted score report which input moved.
+    // The descriptor rounds them to two places, so the comparisons are exact.
     let ev = &fk["x-dovetailEvidence"];
+    let terms: [(&str, f64); 5] = [
+        (
+            "x-dovetailConfidence",
+            fk["x-dovetailConfidence"].as_f64().unwrap(),
+        ),
+        ("nameSimilarity", ev["nameSimilarity"].as_f64().unwrap()),
+        (
+            "semanticSimilarity",
+            ev["semanticSimilarity"].as_f64().unwrap(),
+        ),
+        ("valueOverlap", ev["valueOverlap"].as_f64().unwrap()),
+        (
+            "parentKeyLikeness",
+            ev["parentKeyLikeness"].as_f64().unwrap(),
+        ),
+    ];
+    let expected: [(&str, f64); 5] = [
+        ("x-dovetailConfidence", 0.95),
+        ("nameSimilarity", 0.9),
+        ("semanticSimilarity", 0.0),
+        ("valueOverlap", 1.0),
+        ("parentKeyLikeness", 1.0),
+    ];
+    assert_eq!(
+        terms,
+        expected,
+        "the scoring terms this fixture determines have moved; relate scored:\n{}",
+        edge_report(&edges)
+    );
+    assert!(
+        fk["x-dovetailConfidence"].as_f64().unwrap() >= CONF_HIGH,
+        "this fixture's edge must clear the auto-accept gate; relate scored:\n{}",
+        edge_report(&edges)
+    );
     assert!(
         ev["parentUnique"].as_bool().unwrap(),
         "accounts.id is the unique parent key"
@@ -159,8 +254,6 @@ fn one_flow_yields_semantic_types_and_evidence_bearing_foreign_keys() {
         0,
         "the FK holds — no orphans"
     );
-    assert!(ev["valueOverlap"].as_f64().unwrap() > 0.0);
-    assert!(ev["nameSimilarity"].as_f64().unwrap() > 0.0);
 
     // --- one descriptor, still Frictionless-conformant --------------------------
 

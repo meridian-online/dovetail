@@ -85,3 +85,37 @@ jobs:
 
       - name: test (no default features)
         run: cargo test --workspace --no-default-features
+
+  # The same gates on macOS, so "green" answers for the platform the
+  # `--no-default-features` binary is built and demonstrated on as well as for
+  # the runner's. Both jobs above are ubuntu-only, and a job that runs on one
+  # operating system cannot report on a result that differs between two: the
+  # question "does this behave the same on macOS" was decidable only by a human
+  # running it by hand, and a hand-run result is not evidence anyone else can
+  # read.
+  #
+  # Scoped to the `--no-default-features` half deliberately. That feature set
+  # drops `finetype-guided` and with it the candle stack, so this job compiles
+  # the bundled DuckDB and the value-only typing path and stops — the
+  # configuration whose portability was in question. Widening it to the default
+  # features would re-check a model path that the ubuntu-latest job already
+  # covers.
+  build-macos:
+    runs-on: macos-latest
+    # Sized for a cold run, matching the ceiling on the job above: the bundled
+    # DuckDB amalgamation is the dominant cost and it is compiled from source
+    # here too.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.94"
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: clippy (no default features)
+        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+
+      - name: test (no default features)
+        run: cargo test --workspace --no-default-features
