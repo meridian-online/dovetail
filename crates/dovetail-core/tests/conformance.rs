@@ -1,4 +1,4 @@
-//! ac-08 — every emitted datapackage.json validates against the vendored
+//! Every emitted datapackage.json validates against the vendored
 //! Frictionless profile, and the custom load-recipe property does not break
 //! conformance.
 

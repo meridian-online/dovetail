@@ -2,8 +2,8 @@
 //!
 //! `dovetail survey <paths...>` discovers how to load each file: it detects the
 //! format and row-level structure, reports which fallback-ladder rung it chose
-//! and why (ac-09), and prints the emitted standalone load. Under-confident
-//! detections route to suggest-and-confirm rather than emit blind (ac-10).
+//! and why, and prints the emitted standalone load. Under-confident
+//! detections route to suggest-and-confirm rather than emit blind.
 
 use std::path::PathBuf;
 use std::process::ExitCode;

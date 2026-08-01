@@ -3,7 +3,7 @@
 //! make-or-break capability for survey (spec 2026-06-20-survey-detection-and-load):
 //! a wrong structure means the emitted recipe loads the wrong table.
 //!
-//! Two implementations ship for the head-to-head eval (ac-02 / ac-03):
+//! Two implementations ship for the head-to-head eval:
 //! - [`ShapeHeuristicDetector`] — pure structural inspection, no finetype.
 //! - `FinetypeGuidedDetector` (feature `finetype-guided`) — finetype-model's
 //!   column classifier driving a recursive descent into nested structure.

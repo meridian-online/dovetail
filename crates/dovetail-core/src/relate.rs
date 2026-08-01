@@ -1,4 +1,4 @@
-//! relate — discover how DuckDB tables relate (card 0002, spec
+//! relate — discover how DuckDB tables relate (spec
 //! 2026-06-21-relate-discover-verify-render).
 //!
 //! relate READS an existing DuckDB (the analyst loaded it via survey's emitted
@@ -110,7 +110,7 @@ pub struct Edge {
     pub reason: String,
 }
 
-// --- Tunable thresholds (ac-10/ac-04: pin the auto-accept boundary) ----------
+// --- Tunable thresholds (pin the auto-accept boundary) -----------------------
 
 /// Confidence at or above which an edge is "high-confidence".
 pub const CONF_HIGH: f64 = 0.6;
@@ -277,7 +277,7 @@ const FIELD_SAMPLE_N: usize = 500;
 /// self-assembling artifact that carries BOTH halves of the model: every field is
 /// typed with a finetype semantic type (not the coarse SQL family), and the
 /// discovered foreignKeys ride inside each resource's Table Schema with their
-/// evidence + confidence (ac-05 / ac-07). Non-rejected edges (accepted +
+/// evidence + confidence. Non-rejected edges (accepted +
 /// suggested) are written, carrying their status; rejected coincidences are left
 /// out. This is what `dovetail relate` writes/updates — the canonical
 /// relationship-model output (choice 0003), now semantically typed.
@@ -416,7 +416,7 @@ fn frictionless_type(ty: &str) -> &'static str {
     }
 }
 
-// --- Schema read (ac-02) -----------------------------------------------------
+// --- Schema read -------------------------------------------------------------
 
 struct TypedColumn {
     col: ColumnRef,
@@ -459,7 +459,7 @@ fn type_family(ty: &str) -> &'static str {
     }
 }
 
-// --- Evidence + verification + scoring (ac-02/03/04) --------------------------
+// --- Evidence + verification + scoring ---------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 fn score_edge(
@@ -585,8 +585,8 @@ fn demote_on_mismatch(
     )
 }
 
-/// Status from verification + confidence (ac-04). Verification is the safety
-/// gate (ac-03): only an integrity-holding edge against a unique parent
+/// Status from verification + confidence. Verification is the safety
+/// gate: only an integrity-holding edge against a unique parent
 /// auto-accepts. The boolean trap is caught because a non-unique parent never
 /// reaches Accepted regardless of naming.
 fn assign_status(v: &Verification, confidence: f64) -> (EdgeStatus, String) {
@@ -736,13 +736,13 @@ fn quote(ident: &str) -> String {
     format!("\"{}\"", ident.replace('"', "\"\""))
 }
 
-// --- Renders (ac-05 / ac-06) -------------------------------------------------
+// --- Renders -----------------------------------------------------------------
 
 use crate::datapackage::{ForeignKey, ForeignKeyReference};
 
 impl Edge {
     /// Build the Frictionless foreignKey entry for this edge, carrying status,
-    /// confidence and evidence as custom properties (ac-05, choice 0003).
+    /// confidence and evidence as custom properties (choice 0003).
     pub fn to_foreign_key(&self) -> ForeignKey {
         ForeignKey {
             fields: vec![self.child.column.clone()],
@@ -768,7 +768,7 @@ impl Edge {
         }
     }
 
-    /// Standard portable constraint DDL for an accepted edge (ac-06). Emitted in
+    /// Standard portable constraint DDL for an accepted edge. Emitted in
     /// ALTER form — legible, and accepted by standard SQL engines (Postgres). Note
     /// DuckDB only enforces FKs declared at CREATE-table time, so this artifact is
     /// the reviewable migration, not something dovetail runs (choice 0001).
@@ -785,7 +785,7 @@ impl Edge {
     }
 }
 
-/// Constraint DDL for every accepted edge, in stable order (ac-06). Only accepted
+/// Constraint DDL for every accepted edge, in stable order. Only accepted
 /// edges compile (choice 0007).
 pub fn constraint_ddl(edges: &[Edge]) -> String {
     let mut accepted: Vec<&Edge> = accepted(edges);

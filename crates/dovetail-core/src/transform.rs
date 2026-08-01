@@ -1,4 +1,4 @@
-//! Embedded jaq transform (card 0003, spec 2026-06-21-jaq-passthrough-shim).
+//! Embedded jaq transform (spec 2026-06-21-jaq-passthrough-shim).
 //!
 //! `run_jaq` executes a jq program over input bytes through embedded, vendored
 //! jaq — no system jq on this path (choice 0005). It is **true passthrough**:
@@ -10,7 +10,7 @@ use jaq_core::load::{Arena, File, Loader};
 use jaq_core::{data, unwrap_valr, Compiler, Ctx, Vars};
 use jaq_json::Val;
 
-/// The embedded jaq-core version (ac-08). Tracks the `jaq-core` pin in this
+/// The embedded jaq-core version. Tracks the `jaq-core` pin in this
 /// crate's Cargo.toml / Cargo.lock; kept retrievable so emitted artifacts can
 /// stamp what produced them. Auto-deriving this from Cargo.lock at build time is
 /// a choice-0013 hardening follow-up.
@@ -31,7 +31,7 @@ pub enum JaqError {
 /// The result of running a jq program.
 pub struct JaqOutput {
     /// The exact program that was run — byte-equal to the input program
-    /// (passthrough, never rewritten). This is ac-02's assertable artifact.
+    /// (passthrough, never rewritten). This is the assertable artifact.
     pub program: String,
     /// Output values, each rendered as compact JSON — one per NDJSON line.
     pub values: Vec<String>,
@@ -39,7 +39,7 @@ pub struct JaqOutput {
 
 impl JaqOutput {
     /// Render the output as NDJSON: one compact JSON value per line, trailing
-    /// newline. Greppable and DuckDB-loadable (ac-04).
+    /// newline. Greppable and DuckDB-loadable.
     pub fn to_ndjson(&self) -> String {
         let mut s = String::new();
         for v in &self.values {

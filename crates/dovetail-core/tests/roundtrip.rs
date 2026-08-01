@@ -1,4 +1,4 @@
-//! ac-07 — the emitted .sql actually loads. For each fixture, run the emitted
+//! The emitted .sql actually loads. For each fixture, run the emitted
 //! SQL through DuckDB and assert the resulting table's row count and column set
 //! match the manifest. DuckDB runs ONLY here, in the test suite — never on
 //! survey's own path (choice 0001). A mismatch fails loudly: it is the core

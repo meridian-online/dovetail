@@ -1,4 +1,4 @@
-//! ac-05 — the emitted .sql uses the right native reader and the detector's
+//! The emitted .sql uses the right native reader and the detector's
 //! resolved parameters, and is plain/legible (a single SELECT per load).
 
 use std::path::{Path, PathBuf};

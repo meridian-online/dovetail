@@ -70,7 +70,7 @@ wait for confirmation before tagging.
 2. **Up to date with origin** — `git fetch` then confirm `main` is not behind
    `origin/main`.
 3. **Tests pass** — `cargo test --workspace` with zero failures. This includes
-   the ac-08 Frictionless conformance test (`crates/dovetail-core/tests/conformance.rs`)
+   the Frictionless conformance test (`crates/dovetail-core/tests/conformance.rs`)
    — the emitted descriptors must still validate against the vendored profile.
 4. **Zero warnings** — `cargo build --workspace 2>&1 | grep "^warning" | head -1`
    is empty.

@@ -1,4 +1,4 @@
-//! ac-06 — survey assembles a Data Package descriptor per file: resource with
+//! survey assembles a Data Package descriptor per file: resource with
 //! source path, format, load-recipe reference, Table Schema from the columns,
 //! and provenance on the standard fields (bytes, hash).
 

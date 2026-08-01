@@ -1,4 +1,4 @@
-//! Detection eval harness (ac-03). Runs one or more [`Detector`]s over a fixture
+//! Detection eval harness. Runs one or more [`Detector`]s over a fixture
 //! corpus and scores each by row-structure identification hit-rate — an exact
 //! full-structure match against each fixture's manifest (review-spec finding 2).
 //! The result renders to a markdown table for the reproducible eval record.
@@ -128,8 +128,8 @@ pub fn eval_detector(
     EvalResult { detector: detector.name().to_string(), mode: mode.into(), total: corpus.len(), hits, scores }
 }
 
-/// Render eval results as a markdown report — the reproducible eval record
-/// (ac-03 deliverable). `date` is passed in (the workflow stamps it).
+/// Render eval results as a markdown report — the reproducible eval record.
+/// `date` is passed in (the workflow stamps it).
 pub fn render_report(results: &[EvalResult], corpus_label: &str, date: &str) -> String {
     let mut s = String::new();
     s.push_str(&format!("# Detection eval — {date}\n\n"));

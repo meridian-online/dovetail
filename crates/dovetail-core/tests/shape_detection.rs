@@ -1,6 +1,6 @@
-//! ac-02 / ac-03 groundwork: the shape-heuristic detector must read the correct
-//! row-level structure and column set for every fixture in the corpus. Scored
-//! here as an exact full-structure match against each fixture's manifest.
+//! The shape-heuristic detector must read the correct row-level structure and
+//! column set for every fixture in the corpus. Scored here as an exact
+//! full-structure match against each fixture's manifest.
 
 use std::path::{Path, PathBuf};
 

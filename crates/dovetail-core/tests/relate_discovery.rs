@@ -1,8 +1,8 @@
 //! relate discovery tests (spec 2026-06-21-relate-discover-verify-render):
-//! - ac-01 fixture corpus + expected-outcome manifest
-//! - ac-02/03/04 discover → verify → status, scored against the manifest
-//! - ac-05 foreignKeys written into Table Schema, still profile-conformant
-//! - ac-06 constraint DDL for accepted edges only, and it provably holds
+//! - fixture corpus + expected-outcome manifest
+//! - discover → verify → status, scored against the manifest
+//! - foreignKeys written into Table Schema, still profile-conformant
+//! - constraint DDL for accepted edges only, and it provably holds
 
 use std::path::{Path, PathBuf};
 
@@ -39,7 +39,7 @@ fn manifest() -> Manifest {
     serde_json::from_str(&text).unwrap()
 }
 
-// ac-02/03/04 — every expected edge gets the status the manifest requires.
+// Every expected edge gets the status the manifest requires.
 #[test]
 fn discovery_assigns_the_expected_status_to_every_fixture_edge() {
     let conn = build_fixture();
@@ -62,7 +62,7 @@ fn discovery_assigns_the_expected_status_to_every_fixture_edge() {
     assert!(misses.is_empty(), "status misses:\n{}", misses.join("\n"));
 }
 
-// ac-04 safety — the ONLY auto-accepted edge is the holding FK; no coincidence
+// Safety — the ONLY auto-accepted edge is the holding FK; no coincidence
 // (boolean overlap, surrogate-id overlap) auto-accepts.
 #[test]
 fn only_the_holding_fk_auto_accepts() {
@@ -73,7 +73,7 @@ fn only_the_holding_fk_auto_accepts() {
     assert_eq!(acc, vec!["orders.customer_id -> customers.id".to_string()], "unexpected accepts: {acc:?}");
 }
 
-// ac-06 — DDL is emitted for accepted edges only, and the FK provably holds:
+// DDL is emitted for accepted edges only, and the FK provably holds:
 // rebuild parent(PK) + child(FK) and re-insert the verified data; DuckDB enforces
 // the constraint at CREATE-time and the insert succeeds because the edge holds.
 #[test]
@@ -101,7 +101,7 @@ fn accepted_edge_ddl_holds_in_duckdb() {
         .expect("verified FK must enforce cleanly");
 }
 
-// ac-05 — discovered edges become foreignKeys inside a Table Schema, and the
+// Discovered edges become foreignKeys inside a Table Schema, and the
 // resource still validates against the vendored Frictionless profile.
 #[test]
 fn foreign_keys_serialize_inside_table_schema_and_conform() {
@@ -138,7 +138,7 @@ fn foreign_keys_serialize_inside_table_schema_and_conform() {
     assert!(fk0["x-dovetailEvidence"]["parentUnique"].as_bool().unwrap());
 }
 
-// ac-07 / ac-05 — the descriptor relate writes carries foreignKeys and validates
+// The descriptor relate writes carries foreignKeys and validates
 // against the vendored Frictionless profile via the actual jsonschema validator
 // (not just serde shape), with the custom FK properties present.
 #[test]

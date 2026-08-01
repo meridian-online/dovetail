@@ -1,15 +1,15 @@
-//! SQL emission (ac-05). Turn a [`Detection`] into a standalone DuckDB `.sql`
+//! SQL emission. Turn a [`Detection`] into a standalone DuckDB `.sql`
 //! that loads the input natively. The SQL is plain and reviewable — legibility
 //! is the output value (the tabletop's load-bearing value): a reviewer reads
 //! exactly which reader and parameters run, with no cleverness to decode.
 //!
 //! Emission never touches DuckDB — it produces text. DuckDB executes only in the
-//! round-trip test (ac-07), never on survey's own path (choice 0001).
+//! round-trip test, never on survey's own path (choice 0001).
 
 use crate::structure::{Detection, Format, Structure};
 
 /// The duplicate-column policy survey records when an input has repeated column
-/// names (ac-11). `Rename` is the default — deterministic, and keeps every
+/// names. `Rename` is the default — deterministic, and keeps every
 /// column's data rather than dropping silently (review-spec finding 4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DuplicatePolicy {

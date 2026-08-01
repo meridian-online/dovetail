@@ -7,8 +7,8 @@ the common ingestion idioms — identity, array iteration, field access, the
 
 Every case is marked `jq_equivalent: true`: embedded jaq and canonical jq are
 expected to produce byte-identical output for it. That equivalence is what the
-reference-parity test (ac-06) asserts. Programs where jaq and jq are known to
+reference-parity test asserts. Programs where jaq and jq are known to
 diverge are deliberately **excluded** from this corpus and recorded in
 [`divergence-notes.md`](divergence-notes.md)
-(ac-07) — the parity claim is "equivalent on this stated subset", not "equivalent
+— the parity claim is "equivalent on this stated subset", not "equivalent
 to jq" in general.

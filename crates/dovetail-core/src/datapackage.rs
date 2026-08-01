@@ -1,11 +1,11 @@
-//! Data Package assembly (ac-06). survey serialises both models into one
+//! Data Package assembly. survey serialises both models into one
 //! Frictionless Data Package descriptor (`datapackage.json`) — the canonical
 //! artifact (choice 0002). This module builds the per-resource half: load
 //! recipe reference, Table Schema, and resource-level provenance carried on the
 //! standard fields (`bytes`, `hash`, `format`, `mediatype`).
 //!
 //! `foreignKeys` (the relationship half) is out of scope here — it belongs to
-//! relate (card 0002-relate).
+//! relate.
 
 use std::path::Path;
 

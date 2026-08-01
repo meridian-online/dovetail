@@ -14,7 +14,7 @@ pointers into a generated `dictionary.json`, which is not resolvable standalone.
 FineType inlines those definitions into one ref-free schema the `jsonschema`
 crate validates against directly.
 
-Conformance scope (ac-08 — every emitted `datapackage.json` must satisfy it):
+Conformance scope (every emitted `datapackage.json` must satisfy it):
 
 - **Data Package** — `resources` required; an array of ≥1 resource.
 - **Data Resource** — `name` required, plus one of `path` / `data`.

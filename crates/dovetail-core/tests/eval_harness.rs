@@ -1,6 +1,6 @@
-//! ac-03 — run the detection eval over the fixture corpus, write the
-//! reproducible results table to the spec folder, and assert the chosen
-//! detector clears the detection-quality bar (ac-10, fixed at >=90%).
+//! Run the detection eval over the fixture corpus, write the reproducible
+//! results table to the spec folder, and assert the chosen detector clears
+//! the detection-quality bar (fixed at >=90%).
 
 use std::path::{Path, PathBuf};
 
@@ -10,7 +10,7 @@ use dovetail_core::eval::{eval_detector, load_corpus, render_report, EvalResult}
 #[cfg(feature = "finetype-guided")]
 use dovetail_core::detect::FinetypeGuidedDetector;
 
-/// The >=90% floor from ac-10, treated as fixed (review-spec finding 1).
+/// The >=90% floor, treated as fixed (review-spec finding 1).
 const DETECTION_BAR: f64 = 0.90;
 
 fn repo_root() -> PathBuf {

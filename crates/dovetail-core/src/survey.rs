@@ -3,10 +3,10 @@
 //! human-facing report.
 //!
 //! This module is the home of three behaviours:
-//! - **Rung reporting (ac-09):** every input reports the chosen rung and why.
-//! - **Detection-quality gate (ac-10):** an under-confident detection routes to
+//! - **Rung reporting:** every input reports the chosen rung and why.
+//! - **Detection-quality gate:** an under-confident detection routes to
 //!   suggest-and-confirm instead of emit-and-trust.
-//! - **Duplicate-column policy (ac-11):** duplicates are surfaced with the
+//! - **Duplicate-column policy:** duplicates are surfaced with the
 //!   explicit policy applied, never dropped silently.
 
 use std::path::{Path, PathBuf};
@@ -33,7 +33,7 @@ impl Rung {
 
 /// Per-input confidence floor for the detection-quality gate. A detection below
 /// this routes to suggest-and-confirm. The corpus-level ≥90% bar is asserted
-/// separately by the eval (ac-10's two mechanisms).
+/// separately by the eval.
 pub const DETECTION_CONFIDENCE_FLOOR: f32 = 0.5;
 
 /// What survey decided for one input.
