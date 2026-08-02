@@ -225,8 +225,14 @@ mod tests {
     }
 
     /// The checksum is the substance. These strings match the LEI pattern
-    /// exactly — 4 digits, 14 alphanumerics, 2 digits — and carry wrong check
-    /// digits. Pattern-only agreement would confirm all four as LEIs.
+    /// exactly — 18 alphanumerics, 2 digits — and carry wrong check digits.
+    /// Pattern-only agreement would confirm every one of them as an LEI.
+    ///
+    /// Both prefix shapes the widened pattern admits are here. The letter-
+    /// prefixed half is the space the widening opened: under the old
+    /// four-leading-digits pattern those strings were rejected on shape before
+    /// the check digits were ever consulted, so the checksum is now the only
+    /// thing standing between them and an identifier type.
     #[test]
     fn probe_rejects_pattern_shaped_values_with_bad_check_digits() {
         let forged = s(&[
@@ -234,13 +240,22 @@ mod tests {
             "213800WSGIIZCXF1P500",
             "549300MLUDYVRQOOXS00",
             "0439PH4JW8BY7PLFUQ00",
+            "XA7TGNO0H4AJ34N48G00",
+            "IQTSPMI222PTMTCVH000",
+            "VRMB7XBEVMA3R4300000",
+            "SZ3TGTSWMARXSQQ2JH00",
         ]);
+        let lei = finetype_core::checksum::resolve("lei").expect("the lei checksum exists");
         for v in &forged {
             assert!(
                 finetype_core::validate_value_for_label(v, "finance.securities.lei", taxonomy())
                     .expect("lei leaf exists")
                     .is_valid,
                 "premise moved: {v} no longer matches the LEI pattern"
+            );
+            assert!(
+                !lei(v),
+                "premise moved: {v} now carries valid check digits, so it is not a forgery"
             );
         }
         assert_eq!(
@@ -273,28 +288,26 @@ mod tests {
         }
     }
 
-    /// **Known limitation, pinned so it cannot be forgotten.**
+    /// LEIs with a **letter** LOU prefix type as LEIs.
     ///
-    /// finetype's LEI validation pattern is `^[0-9]{4}[A-Z0-9]{14}[0-9]{2}$` and
-    /// its description reads "4-digit LOU prefix". ISO 17442 makes characters
-    /// 1–4 the LOU prefix, which is **alphanumeric** — a great many real LEIs
-    /// begin with letters. Measured against 400 LEIs from a live registry slice:
-    /// **400 of 400 pass finetype's own ISO 7064 check digits; 131 (32.8%) match
-    /// its pattern.** A real LEI column therefore sits far below the 90%
-    /// agreement bar and types as nothing at all, so the identifier probe cannot
-    /// reach it and relate scores the column on spelling alone.
+    /// ISO 17442 makes characters 1–4 an alphanumeric LOU prefix, so a great
+    /// many real LEIs begin with letters. finetype's validation pattern required
+    /// four leading digits, and against 400 LEIs from a live registry slice
+    /// **400 of 400 passed its own ISO 7064 check digits while 131 (32.8%)
+    /// matched its pattern** — so a real LEI column sat far below the 90%
+    /// agreement bar, typed as nothing, and relate scored it on spelling alone.
+    /// The pattern is now `^[A-Z0-9]{4}[A-Z0-9]{14}[0-9]{2}$`.
     ///
-    /// dovetail deliberately does **not** patch around this. The taxonomy is
-    /// finetype's to define, and a pattern override here would be a second
-    /// source of truth about what an LEI is — drifting against the one that
-    /// already exists, in a repo that consumes finetype as a pinned dependency.
+    /// The repair belonged upstream and was made there. dovetail does not
+    /// override finetype's patterns: the taxonomy is finetype's to define, and a
+    /// second definition of what an LEI is, in a repo that consumes finetype as
+    /// a pinned dependency, would drift against the first.
     ///
     /// The values below carry valid ISO 7064 check digits and letter LOU
-    /// prefixes. **When this test reddens, the upstream pattern has been fixed**
-    /// — at which point widen `identifier-keys.build.sql`, whose LEIs are all
-    /// digit-prefixed today precisely because that is all finetype accepts.
+    /// prefixes. Both halves of the assertion — the pattern and the resolution —
+    /// redden if the finetype pin is moved back below the widening.
     #[test]
-    fn letter_prefixed_leis_do_not_resolve_upstream_pattern_defect() {
+    fn letter_prefixed_leis_resolve_to_the_lei_leaf() {
         let real_shaped = s(&[
             "XA7TGNO0H4AJ34N48G95",
             "IQTSPMI222PTMTCVH081",
@@ -308,17 +321,16 @@ mod tests {
                 "{v} must carry valid ISO 7064 check digits for this test to mean anything"
             );
             assert!(
-                !finetype_core::validate_value_for_label(v, "finance.securities.lei", taxonomy())
+                finetype_core::validate_value_for_label(v, "finance.securities.lei", taxonomy())
                     .expect("lei leaf exists")
                     .is_valid,
-                "UPSTREAM FIXED: {v} now matches finetype's LEI pattern. Delete this test and \
-                 widen the identifier-keys fixture to letter-prefixed LEIs."
+                "{v} must match finetype's LEI pattern — a letter LOU prefix is ISO 17442"
             );
         }
         assert_eq!(
-            deterministic_semantic_type(&real_shaped),
-            None,
-            "a column of genuinely-shaped LEIs types as nothing while the pattern is wrong"
+            deterministic_semantic_type(&real_shaped).as_deref(),
+            Some("finance.securities.lei"),
+            "a column of genuinely-shaped LEIs must type as LEI"
         );
     }
 
