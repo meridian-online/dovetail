@@ -70,20 +70,29 @@ The `finetype-guided` feature (on by default) pulls the candle-backed column
 classifier via `finetype-model`; `--no-default-features` drops it for fast
 iteration on the structure layer.
 
-## finetype path dependency
+## finetype dependency
 
 dovetail consumes finetype as an **in-process library dependency** (choice
-0012): `finetype-core` and `finetype-model` are path deps pointing at the
-sibling checkout `../finetype/crates/*`. `finetype-core` carries the light
-structure/schema primitives and the authoritative Frictionless type map
-(`frictionless_for`); `finetype-model` carries the candle column classifier used
-by the finetype-guided detector.
+0012): `finetype-core` and `finetype-model` are git dependencies on the public
+finetype repo, pinned to a tag under `[workspace.dependencies]` in the root
+`Cargo.toml`. `finetype-core` carries the light structure/schema primitives and
+the authoritative Frictionless type map (`frictionless_for`); `finetype-model`
+carries the candle column classifier used by the finetype-guided detector.
 
-Because they are path deps, a build resolves whatever is checked out in
-`../finetype` and pins it in `Cargo.lock`. When the sibling version moves,
-`cargo build`/`test` re-resolves and updates the lockfile — commit that change
-alongside the work that triggered it. For a reproducible build, keep
-`../finetype` on a committed (clean) state.
+Cargo fetches that tag from GitHub, and `Cargo.lock` records the commit it
+resolved to. **That recorded commit is what dovetail builds against** — it is
+what makes the build reproducible, and it is the version to quote when you need
+to say which finetype a build used:
+
+```bash
+awk '/^name = "finetype-core"/{f=1} f && /^source = /{print; exit}' Cargo.lock
+```
+
+A checkout at `../finetype` is not an input to the build, so editing it changes
+nothing here. Moving to a new finetype version is a source edit: change the
+`tag` on both crates in the root `Cargo.toml`, re-resolve without building
+(`cargo metadata --format-version 1 >/dev/null`), and commit `Cargo.toml` and
+`Cargo.lock` together with the work that triggered it.
 
 ## Style — how to write for the author
 

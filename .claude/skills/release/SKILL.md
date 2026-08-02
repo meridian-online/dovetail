@@ -74,16 +74,10 @@ wait for confirmation before tagging.
    — the emitted descriptors must still validate against the vendored profile.
 4. **Zero warnings** — `cargo build --workspace 2>&1 | grep "^warning" | head -1`
    is empty.
-5. **finetype path-dep is committed** — dovetail consumes `finetype-core` /
-   `finetype-model` as path dependencies (`../finetype`). Confirm the sibling
-   checkout is on a committed state (no dirty working tree there) so the build
-   you tag is reproducible: `git -C ../finetype status --porcelain` is empty.
-   Note in the summary which finetype commit dovetail builds against
-   (`git -C ../finetype rev-parse --short HEAD`).
-6. **CI is green** *(if configured)* — if `.github/workflows/` has a CI
-   workflow, the latest run on `main` must pass (`gh run list --branch main
-   --limit 1`). Skip if no workflow exists yet.
-7. **The changelog gate** — `CHANGELOG.md`'s `[Unreleased]` section must have at
+5. **CI is green** — every workflow under `.github/workflows/` must have a
+   passing run on the commit you are about to tag: `gh run list --commit "$(git
+   rev-parse HEAD)"`.
+6. **The changelog gate** — `CHANGELOG.md`'s `[Unreleased]` section must have at
    least one entry. An empty `[Unreleased]` means the work since the last
    release was never written up — **treat a missing entry as a missing test**
    and stop. Reconcile it before continuing (next step).
@@ -165,6 +159,13 @@ changelog never drift, because one is generated from the other.
 
 ### 8. Summary
 
+The finetype line is read from `Cargo.lock`, which carries both the tag dovetail
+pins and the commit that tag resolved to — the commit the build actually used:
+
+```bash
+awk '/^name = "finetype-core"/{f=1} f && /^source = /{print; exit}' Cargo.lock
+```
+
 Report:
 
 ```
@@ -172,7 +173,7 @@ Released dovetail vNEXT.
 
   Tag:        vNEXT
   Date:       YYYY-MM-DD
-  finetype:   <short-sha> (path dep dovetail built against)
+  finetype:   <tag>@<commit>, from Cargo.lock
   Release:    https://github.com/meridian-online/dovetail/releases/tag/vNEXT
 
   Changelog:
