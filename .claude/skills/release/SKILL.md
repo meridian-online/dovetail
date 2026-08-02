@@ -75,8 +75,8 @@ wait for confirmation before tagging.
 4. **Zero warnings** — `cargo build --workspace 2>&1 | grep "^warning" | head -1`
    is empty.
 5. **CI is green** — every workflow under `.github/workflows/` must have a
-   passing run on the commit you are about to tag: `gh run list --commit "$(git
-   rev-parse HEAD)"`.
+   passing run on `HEAD`, the parent of the release commit step 6 tags: `gh run
+   list --commit "$(git rev-parse HEAD)"`.
 6. **The changelog gate** — `CHANGELOG.md`'s `[Unreleased]` section must have at
    least one entry. An empty `[Unreleased]` means the work since the last
    release was never written up — **treat a missing entry as a missing test**
