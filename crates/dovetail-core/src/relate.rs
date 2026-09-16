@@ -381,13 +381,17 @@ fn typed_field(column: &str, sql_ty: &str, semantic: Option<String>) -> crate::d
             name: column.to_string(),
             ty: fx.ftype,
             format: fx.format,
+            constraints: None,
             semantic_type: semantic,
+            nominated: None,
         },
         None => Field {
             name: column.to_string(),
             ty: frictionless_type(sql_ty).to_string(),
             format: None,
+            constraints: None,
             semantic_type: None,
+            nominated: None,
         },
     }
 }

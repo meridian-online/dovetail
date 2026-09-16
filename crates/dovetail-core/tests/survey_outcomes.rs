@@ -34,6 +34,7 @@ fn reports_the_chosen_rung_and_reason() {
         &det,
         DuplicatePolicy::default(),
         None,
+        None,
     )
     .unwrap();
     matches!(report.outcome, Outcome::Emitted { .. });
@@ -50,6 +51,7 @@ fn surfaces_duplicate_columns_and_policy() {
         &fixture_path("csv-dup-cols"),
         &det,
         DuplicatePolicy::default(),
+        None,
         None,
     )
     .unwrap();
@@ -74,7 +76,7 @@ fn under_confident_input_routes_to_suggest_confirm() {
     std::fs::write(&garbage, b"\"just a bare string\"").unwrap();
 
     let det = ShapeHeuristicDetector::new();
-    let report = survey_file(&garbage, &det, DuplicatePolicy::default(), None).unwrap();
+    let report = survey_file(&garbage, &det, DuplicatePolicy::default(), None, None).unwrap();
     match &report.outcome {
         Outcome::SuggestConfirm { reason } => {
             assert!(reason.contains("below"), "reason: {reason}");
@@ -93,7 +95,8 @@ fn corpus_clears_the_detection_bar() {
     let emitted = corpus
         .iter()
         .filter(|fx| {
-            let r = survey_file(&fx.data_path, &det, DuplicatePolicy::default(), None).unwrap();
+            let r =
+                survey_file(&fx.data_path, &det, DuplicatePolicy::default(), None, None).unwrap();
             matches!(r.outcome, Outcome::Emitted { .. })
         })
         .count();

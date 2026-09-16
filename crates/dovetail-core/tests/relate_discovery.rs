@@ -149,13 +149,17 @@ fn foreign_keys_serialize_inside_table_schema_and_conform() {
                 name: "id".into(),
                 ty: "integer".into(),
                 format: None,
+                constraints: None,
                 semantic_type: None,
+                nominated: None,
             },
             Field {
                 name: "customer_id".into(),
                 ty: "integer".into(),
                 format: None,
+                constraints: None,
                 semantic_type: None,
+                nominated: None,
             },
         ],
         foreign_keys: fks,
@@ -192,6 +196,20 @@ fn relate_descriptor_validates_against_frictionless_profile() {
     assert!(fks.iter().any(
         |fk| fk["reference"]["resource"] == "customers" && fk["x-dovetailStatus"] == "accepted"
     ));
+
+    // relate never nominates: every field it types carries no `constraints`
+    // and no `x-finetype-nominated` marker (nomination is a survey-only,
+    // --nominations-declared concept relate has no path to).
+    for field in orders["schema"]["fields"].as_array().unwrap() {
+        assert!(
+            field.get("constraints").is_none(),
+            "relate field {field} unexpectedly carries constraints"
+        );
+        assert!(
+            field.get("x-finetype-nominated").is_none(),
+            "relate field {field} unexpectedly carries a nomination marker"
+        );
+    }
 
     // Validate the whole descriptor against the vendored profile.
     let schema_text =

@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use dovetail_core::emit::DuplicatePolicy;
+use dovetail_core::nominations::Nominations;
 use dovetail_core::survey::{survey_file, Outcome};
 use dovetail_core::transform::{run_jaq, JAQ_CORE_VERSION};
 
@@ -69,7 +70,7 @@ fn wants_help(args: &[String]) -> bool {
 }
 
 const SURVEY_HELP: &str = "\
-dovetail survey <paths...>
+dovetail survey <paths...> [--nominations <file>]
 
 Discover how to load each file into DuckDB. Detects the format and row-level
 structure, emits a standalone .sql load plus a datapackage.json descriptor, and
@@ -77,7 +78,14 @@ reports which fallback-ladder rung it chose and why. Under-confident detections
 are surfaced for confirmation rather than emitted blind.
 
 ARGS:
-    <paths...>    One or more input files (csv, tsv, parquet, ndjson, json).
+    <paths...>                One or more input files (csv, tsv, parquet, ndjson, json).
+
+OPTIONS:
+    --nominations <file>       A declaration file naming a column's type by file
+                               stem, the same file finetype reads. A nominated
+                               label is taken as given: it replaces whatever was
+                               detected and carries its taxonomy bounds into the
+                               field's constraints.
 ";
 
 fn run_survey_cmd(args: Vec<String>) -> ExitCode {
@@ -85,12 +93,41 @@ fn run_survey_cmd(args: Vec<String>) -> ExitCode {
         print!("{SURVEY_HELP}");
         return ExitCode::SUCCESS;
     }
-    if args.is_empty() {
-        eprintln!("usage: dovetail survey <paths...>   (see: dovetail survey --help)");
+
+    let mut paths: Vec<PathBuf> = Vec::new();
+    let mut nominations_path: Option<PathBuf> = None;
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        if arg == "--nominations" {
+            let Some(value) = args.next() else {
+                eprintln!("dovetail survey: --nominations requires a file path");
+                return ExitCode::from(2);
+            };
+            nominations_path = Some(PathBuf::from(value));
+        } else {
+            paths.push(PathBuf::from(arg));
+        }
+    }
+
+    if paths.is_empty() {
+        eprintln!(
+            "usage: dovetail survey <paths...> [--nominations <file>]   (see: dovetail survey --help)"
+        );
         return ExitCode::from(2);
     }
-    let paths: Vec<PathBuf> = args.iter().map(PathBuf::from).collect();
-    run_survey(&paths)
+
+    let nominations = match nominations_path {
+        Some(path) => match Nominations::load(&path) {
+            Ok(n) => Some(n),
+            Err(e) => {
+                eprintln!("dovetail survey: {e}");
+                return ExitCode::FAILURE;
+            }
+        },
+        None => None,
+    };
+
+    run_survey(&paths, nominations.as_ref())
 }
 
 /// `dovetail relate <duckdb-path>` — read a loaded DuckDB, discover and verify
@@ -228,7 +265,7 @@ fn run_jaq_cmd(args: Vec<String>) -> ExitCode {
     }
 }
 
-fn run_survey(paths: &[PathBuf]) -> ExitCode {
+fn run_survey(paths: &[PathBuf], nominations: Option<&Nominations>) -> ExitCode {
     // The shipped CLI surveys with the finetype-guided detector: it types each
     // column with the neural classifier when `DOVETAIL_FINETYPE_MODEL_DIR` is
     // configured, and with finetype's deterministic value-only typing floor
@@ -242,7 +279,13 @@ fn run_survey(paths: &[PathBuf]) -> ExitCode {
     let mut had_error = false;
 
     for path in paths {
-        match survey_file(path, &detector, DuplicatePolicy::default(), None) {
+        match survey_file(
+            path,
+            &detector,
+            DuplicatePolicy::default(),
+            None,
+            nominations,
+        ) {
             Ok(report) => {
                 print!("{}", report.render());
                 if let Outcome::Emitted {
