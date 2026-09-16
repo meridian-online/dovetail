@@ -279,7 +279,13 @@ fn run_survey(paths: &[PathBuf], nominations: Option<&Nominations>) -> ExitCode 
     let mut had_error = false;
 
     for path in paths {
-        match survey_file(path, &detector, DuplicatePolicy::default(), None, nominations) {
+        match survey_file(
+            path,
+            &detector,
+            DuplicatePolicy::default(),
+            None,
+            nominations,
+        ) {
             Ok(report) => {
                 print!("{}", report.render());
                 if let Outcome::Emitted {

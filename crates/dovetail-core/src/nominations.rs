@@ -144,11 +144,13 @@ mod tests {
             Some("representation.text.plain_text")
         );
         assert_eq!(
-            n.get("naics", "description")
-                .and_then(|d| d.why.as_deref()),
+            n.get("naics", "description").and_then(|d| d.why.as_deref()),
             Some("prose")
         );
-        assert_eq!(n.get("naics", "corpus").and_then(|d| d.why.as_deref()), None);
+        assert_eq!(
+            n.get("naics", "corpus").and_then(|d| d.why.as_deref()),
+            None
+        );
         assert_eq!(n.get("naics", "absent"), None);
         assert_eq!(n.get("other", "corpus"), None);
     }

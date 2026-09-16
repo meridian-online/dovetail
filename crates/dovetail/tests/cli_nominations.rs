@@ -79,7 +79,10 @@ fn survey_with_a_nominated_column_prints_the_marker_and_constraints() {
         stdout.contains(r#""x-dovetailSemanticType": "representation.text.plain_text""#),
         "{stdout}"
     );
-    assert!(stdout.contains(r#""x-finetype-nominated": true"#), "{stdout}");
+    assert!(
+        stdout.contains(r#""x-finetype-nominated": true"#),
+        "{stdout}"
+    );
     assert!(stdout.contains(r#""minLength": 1"#), "{stdout}");
     assert!(stdout.contains(r#""maxLength": 65536"#), "{stdout}");
 

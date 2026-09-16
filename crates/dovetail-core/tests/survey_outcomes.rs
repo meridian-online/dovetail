@@ -95,7 +95,8 @@ fn corpus_clears_the_detection_bar() {
     let emitted = corpus
         .iter()
         .filter(|fx| {
-            let r = survey_file(&fx.data_path, &det, DuplicatePolicy::default(), None, None).unwrap();
+            let r =
+                survey_file(&fx.data_path, &det, DuplicatePolicy::default(), None, None).unwrap();
             matches!(r.outcome, Outcome::Emitted { .. })
         })
         .count();

@@ -112,7 +112,11 @@ fn a_detected_but_unnominated_semantic_type_still_carries_no_constraints() {
     use dovetail_core::FinetypeGuidedDetector;
 
     let dir = tmp_dir("ac2-detected-type");
-    let csv = write_csv(&dir, "signups.csv", "email\nada@example.com\ngrace@navy.mil\n");
+    let csv = write_csv(
+        &dir,
+        "signups.csv",
+        "email\nada@example.com\ngrace@navy.mil\n",
+    );
 
     let input = SampledInput::from_path(&csv).unwrap();
     let det = FinetypeGuidedDetector::from_env().detect(&input);
