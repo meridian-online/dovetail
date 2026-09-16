@@ -27,6 +27,7 @@ fn assembles_a_conformant_resource_per_fixture() {
             &fx.manifest.name,
             Some(&format!("{}.sql", fx.manifest.name)),
             Some("2026-06-21T00:00:00Z".into()),
+            None,
         )
         .unwrap();
 
@@ -85,7 +86,7 @@ fn survey_descriptor_carries_finetype_semantic_types() {
     // The detector the shipped `dovetail survey` runs (no model dir → the
     // deterministic typing floor).
     let det = FinetypeGuidedDetector::from_env().detect(&SampledInput::from_path(&csv).unwrap());
-    let dp = assemble(&det, &csv, "signups", Some("signups.sql"), None).unwrap();
+    let dp = assemble(&det, &csv, "signups", Some("signups.sql"), None, None).unwrap();
 
     let fields = &dp.resources[0].schema.fields;
     let email = fields

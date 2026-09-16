@@ -8,9 +8,13 @@
 //! relate.
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 use serde::Serialize;
 
+use finetype_core::{PatternSource, Taxonomy};
+
+use crate::nominations::{nomination_stem, Nomination, Nominations};
 use crate::structure::{Column, Detection, Format};
 
 /// A Frictionless Table Schema field. `type` is a Frictionless type string
@@ -22,9 +26,16 @@ pub struct Field {
     pub ty: String,
     /// Frictionless `format` for the type, when finetype's map supplies one
     /// (e.g. `email` for a string, `%d/%m/%Y` for a date). Frictionless field
-    /// order is name → type → format → custom `x-`.
+    /// order is name → type → format → constraints → custom `x-`.
     #[serde(rename = "format", skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
+    /// The nominated label's taxonomy validation bounds
+    /// (`minLength`/`maxLength`/`minimum`/`maximum`), present only under a
+    /// nomination (nomination-carries-constraints). dovetail reads no column
+    /// values for a nominated field, so this never carries `pattern` or
+    /// `enum` — those are claims about the data, and dovetail makes none.
+    #[serde(rename = "constraints", skip_serializing_if = "Option::is_none")]
+    pub constraints: Option<serde_json::Map<String, serde_json::Value>>,
     /// dovetail's finetype semantic type, retained as a namespaced custom
     /// property alongside the standard `type`.
     #[serde(
@@ -32,6 +43,29 @@ pub struct Field {
         skip_serializing_if = "Option::is_none"
     )]
     pub semantic_type: Option<String>,
+    /// Set when `semantic_type` came from `--nominations` rather than
+    /// detection: the label was declared, not guessed, and is used as given
+    /// (nomination-is-authoritative).
+    #[serde(
+        rename = "x-finetype-nominated",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub nominated: Option<bool>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum DataPackageError {
+    #[error("reading {0}")]
+    Io(#[from] std::io::Error),
+    #[error("column {column:?} is nominated as {label:?}, which is not a label in the taxonomy")]
+    UnknownNomination { column: String, label: String },
+}
+
+/// The taxonomy dovetail nominations and semantic types are resolved against —
+/// the same one finetype-core embeds at compile time, parsed once and cached.
+fn embedded_taxonomy() -> &'static Taxonomy {
+    static TAXONOMY: OnceLock<Taxonomy> = OnceLock::new();
+    TAXONOMY.get_or_init(|| Taxonomy::embedded().expect("embedded taxonomy must parse"))
 }
 
 /// A Frictionless Table Schema foreign key. Shape per the spec:
@@ -123,23 +157,52 @@ impl Format {
     }
 }
 
-/// Build a Table Schema field from a column, reading finetype's authoritative
-/// Frictionless map (`frictionless_for`) for the `type`/`format` pair. Columns
-/// with no semantic type (the shape-heuristic detector) — and any label the map
-/// doesn't carry — fall back to `string`/no-format, the always-loadable default.
-fn field_of(col: &Column) -> Field {
+/// Build a Table Schema field from a column.
+///
+/// A nomination, when present, wins outright (nomination-is-authoritative): the
+/// declared label replaces whatever detection assigned, and the taxonomy's
+/// `Taxonomy::publication_for` — the one function both dovetail and
+/// finetype-mcp read for what a label publishes — supplies `type`, `format`
+/// and `constraints`. `PatternSource::Observed(None)` because dovetail read no
+/// column values under a nomination and publishes no claim about them.
+///
+/// With no nomination this is unchanged: finetype's authoritative Frictionless
+/// map (`frictionless_for`) supplies `type`/`format`; a column with no semantic
+/// type, or a label the map doesn't carry, falls back to `string`/no-format.
+fn field_of(col: &Column, nomination: Option<&Nomination>) -> Result<Field, DataPackageError> {
+    if let Some(nom) = nomination {
+        let taxonomy = embedded_taxonomy();
+        if taxonomy.get(&nom.label).is_none() {
+            return Err(DataPackageError::UnknownNomination {
+                column: col.name.clone(),
+                label: nom.label.clone(),
+            });
+        }
+        let published = taxonomy.publication_for(&nom.label, PatternSource::Observed(None));
+        return Ok(Field {
+            name: col.name.clone(),
+            ty: published.ftype,
+            format: published.format,
+            constraints: (!published.constraints.is_empty()).then_some(published.constraints),
+            semantic_type: Some(nom.label.clone()),
+            nominated: Some(true),
+        });
+    }
+
     let fx = col
         .semantic_type
         .as_deref()
         .and_then(finetype_core::frictionless_for);
-    Field {
+    Ok(Field {
         name: col.name.clone(),
         ty: fx
             .as_ref()
             .map_or_else(|| "string".into(), |f| f.ftype.clone()),
         format: fx.and_then(|f| f.format),
+        constraints: None,
         semantic_type: col.semantic_type.clone(),
-    }
+        nominated: None,
+    })
 }
 
 /// The Frictionless `resource.path`. Frictionless 2.0 requires it to be
@@ -159,20 +222,34 @@ fn resource_path(source: &Path) -> String {
 /// Assemble a single-resource Data Package descriptor for a surveyed file.
 ///
 /// `created` is injected (rather than read from the clock) so callers control
-/// determinism; pass `None` to omit it.
+/// determinism; pass `None` to omit it. `nominations`, when given, is
+/// consulted per column against `source_path`'s file stem — the same stem
+/// convention the declaration file itself uses, not `resource_name`'s
+/// SQL-safe rewrite of it.
 pub fn assemble(
     det: &Detection,
     source_path: &Path,
     resource_name: &str,
     sql_recipe_ref: Option<&str>,
     created: Option<String>,
-) -> std::io::Result<DataPackage> {
+    nominations: Option<&Nominations>,
+) -> Result<DataPackage, DataPackageError> {
     let bytes_data = std::fs::read(source_path)?;
     let bytes = bytes_data.len() as u64;
     let hash = sha256_hex(&bytes_data);
 
+    let stem = nomination_stem(source_path);
+    let fields = det
+        .columns
+        .iter()
+        .map(|c| {
+            let nomination = nominations.and_then(|n| n.get(&stem, &c.name));
+            field_of(c, nomination)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     let schema = TableSchema {
-        fields: det.columns.iter().map(field_of).collect(),
+        fields,
         foreign_keys: Vec::new(),
     };
 

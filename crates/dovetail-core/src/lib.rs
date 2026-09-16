@@ -10,6 +10,7 @@ pub mod detect;
 pub mod emit;
 pub mod eval;
 pub mod identifiers;
+pub mod nominations;
 pub mod relate;
 pub mod structure;
 pub mod survey;
@@ -17,6 +18,7 @@ pub mod transform;
 pub mod typing;
 
 pub use detect::{Detector, SampledInput, ShapeHeuristicDetector};
+pub use nominations::{Nomination, Nominations};
 pub use structure::{Column, Detection, Format, Structure};
 
 #[cfg(feature = "finetype-guided")]

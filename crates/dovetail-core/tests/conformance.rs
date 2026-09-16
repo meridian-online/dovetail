@@ -37,6 +37,7 @@ fn every_emitted_descriptor_validates_against_the_frictionless_profile() {
             &fx.manifest.name,
             Some(&format!("{}.sql", fx.manifest.name)),
             Some("2026-06-21T00:00:00Z".into()),
+            None,
         )
         .unwrap();
         let json = serde_json::to_value(&dp).unwrap();

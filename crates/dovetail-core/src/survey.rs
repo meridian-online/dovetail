@@ -11,10 +11,19 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::datapackage::{assemble, DataPackage};
+use crate::datapackage::{assemble, DataPackage, DataPackageError};
 use crate::detect::{Detector, SampledInput};
 use crate::emit::{emit_sql, DuplicatePolicy};
+use crate::nominations::Nominations;
 use crate::structure::Detection;
+
+#[derive(Debug, thiserror::Error)]
+pub enum SurveyError {
+    #[error(transparent)]
+    Sample(#[from] crate::detect::SampleError),
+    #[error(transparent)]
+    DataPackage(#[from] DataPackageError),
+}
 
 /// The emitted-output rung (choice 0004). The survey MVP only reaches the SQL
 /// rung; the arcform `.yaml` rung arrives with the jaq-escalation spec.
@@ -61,13 +70,16 @@ pub struct SurveyReport {
 
 /// Survey one file: detect, gate on confidence, then emit + assemble (or route
 /// to suggest-and-confirm). `created` is injected for descriptor provenance.
+/// `nominations`, when given, is consulted by `assemble` for this file's
+/// declared columns.
 pub fn survey_file(
     path: &Path,
     detector: &dyn Detector,
     policy: DuplicatePolicy,
     created: Option<String>,
-) -> std::io::Result<SurveyReport> {
-    let input = SampledInput::from_path(path).map_err(std::io::Error::other)?;
+    nominations: Option<&Nominations>,
+) -> Result<SurveyReport, SurveyError> {
+    let input = SampledInput::from_path(path)?;
     let detection = detector.detect(&input);
     let name = resource_name(path);
 
@@ -90,6 +102,7 @@ pub fn survey_file(
             &name,
             Some(&format!("{name}.sql")),
             created,
+            nominations,
         )?;
         Outcome::Emitted {
             rung: Rung::Sql,
