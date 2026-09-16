@@ -98,6 +98,43 @@ fn no_nominations_carries_no_constraints_or_marker() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// AC2, sharper: a column detection typed on its own (no nomination at all)
+// still carries no `constraints`. `ShapeHeuristicDetector` above never
+// assigns a semantic type, so it cannot exercise the path where
+// `col.semantic_type` is set without a nomination — this uses
+// `FinetypeGuidedDetector`'s deterministic typing floor (no model dir
+// needed) to put a real semantic type on an undeclared column and prove
+// `constraints` is still `field_of`'s nomination-only property, not a
+// semantic-type-implies-constraints one.
+#[cfg(feature = "finetype-guided")]
+#[test]
+fn a_detected_but_unnominated_semantic_type_still_carries_no_constraints() {
+    use dovetail_core::FinetypeGuidedDetector;
+
+    let dir = tmp_dir("ac2-detected-type");
+    let csv = write_csv(&dir, "signups.csv", "email\nada@example.com\ngrace@navy.mil\n");
+
+    let input = SampledInput::from_path(&csv).unwrap();
+    let det = FinetypeGuidedDetector::from_env().detect(&input);
+    let email = det
+        .columns
+        .iter()
+        .find(|c| c.name == "email")
+        .expect("email column");
+    assert_eq!(
+        email.semantic_type.as_deref(),
+        Some("identity.person.email"),
+        "detection did not resolve a semantic type — nothing for this test to guard"
+    );
+
+    let dp = assemble(&det, &csv, "signups", None, None, None).unwrap();
+    let field = &dp.resources[0].schema.fields[0];
+    assert!(field.constraints.is_none(), "{:?}", field.constraints);
+    assert_eq!(field.nominated, None);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // AC3: a nominated label whose taxonomy definition carries a `pattern`
 // publishes the length bounds but no `pattern` and no `enum` — dovetail read
 // no values under the nomination, so it makes no claim about them.
