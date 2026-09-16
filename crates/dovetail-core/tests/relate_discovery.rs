@@ -197,6 +197,20 @@ fn relate_descriptor_validates_against_frictionless_profile() {
         |fk| fk["reference"]["resource"] == "customers" && fk["x-dovetailStatus"] == "accepted"
     ));
 
+    // relate never nominates: every field it types carries no `constraints`
+    // and no `x-finetype-nominated` marker (nomination is a survey-only,
+    // --nominations-declared concept relate has no path to).
+    for field in orders["schema"]["fields"].as_array().unwrap() {
+        assert!(
+            field.get("constraints").is_none(),
+            "relate field {field} unexpectedly carries constraints"
+        );
+        assert!(
+            field.get("x-finetype-nominated").is_none(),
+            "relate field {field} unexpectedly carries a nomination marker"
+        );
+    }
+
     // Validate the whole descriptor against the vendored profile.
     let schema_text =
         std::fs::read_to_string(repo_root().join("vendor/frictionless/datapackage-profile.json"))
