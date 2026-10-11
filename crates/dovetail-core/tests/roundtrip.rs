@@ -1,8 +1,8 @@
 //! The emitted .sql actually loads. For each fixture, run the emitted
 //! SQL through DuckDB and assert the resulting table's row count and column set
 //! match the manifest. DuckDB runs ONLY here, in the test suite — never on
-//! survey's own path (choice 0001). A mismatch fails loudly: it is the core
-//! failure mode the whole spec guards against.
+//! survey's own path. A mismatch fails loudly: it is the core failure mode
+//! this test guards against.
 
 use std::path::{Path, PathBuf};
 

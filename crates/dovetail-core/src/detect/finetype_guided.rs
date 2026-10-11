@@ -3,9 +3,9 @@
 //! It takes the same structural read as the shape-heuristic detector, then
 //! enriches each column with a semantic type from finetype-model's column
 //! classifier, and descends recursively when a column's values are themselves
-//! records (a hidden table). The recursive descent is the "profiling" the spec
-//! calls for (choice 0012): profile candidate rows → a column that profiles as
-//! records is a nested table → descend and re-profile.
+//! records (a hidden table). The recursive descent profiles candidate rows: a
+//! column that profiles as records is a nested table, so it descends and
+//! re-profiles.
 //!
 //! Model artifacts are a runtime dependency. When a model directory is not
 //! configured or fails to load, the detector degrades to the structural read at

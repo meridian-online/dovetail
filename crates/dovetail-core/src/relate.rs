@@ -1,14 +1,13 @@
-//! relate — discover how DuckDB tables relate (spec
-//! 2026-06-21-relate-discover-verify-render).
+//! relate — discover how DuckDB tables relate.
 //!
 //! relate READS an existing DuckDB (the analyst loaded it via survey's emitted
-//! `.sql`; choice 0009) and issues only read queries — schema introspection,
+//! `.sql`) and issues only read queries — schema introspection,
 //! value-overlap/cardinality evidence, and referential-integrity verification
-//! (choice 0014: in-process discovery reads, never pipeline execution). It scores
+//! (in-process discovery reads, never pipeline execution). It scores
 //! each candidate foreign-key edge, VERIFIES it against the data, and assigns a
 //! status: a verified high-confidence edge auto-accepts with no analyst action;
 //! a coincidence or a broken reference is rejected; a plausible-but-unprovable
-//! edge is surfaced as suggested (choice 0007, refined).
+//! edge is surfaced as suggested.
 
 use std::collections::HashMap;
 
@@ -257,7 +256,7 @@ pub fn run_path(path: &str) -> duckdb::Result<RelateRun> {
     Ok(RelateRun { edges, descriptor })
 }
 
-/// Accepted edges only (choice 0007) — what compiles to constraint DDL.
+/// Accepted edges only — what compiles to constraint DDL.
 pub fn accepted(edges: &[Edge]) -> Vec<&Edge> {
     edges
         .iter()
@@ -284,7 +283,7 @@ const FIELD_SAMPLE_N: usize = 500;
 /// evidence + confidence. Non-rejected edges (accepted +
 /// suggested) are written, carrying their status; rejected coincidences are left
 /// out. This is what `dovetail relate` writes/updates — the canonical
-/// relationship-model output (choice 0003), now semantically typed.
+/// relationship-model output, now semantically typed.
 ///
 /// Field typing samples each column's values (as text) and runs finetype's
 /// deterministic, model-free typer over them; a resolved leaf maps through
@@ -797,7 +796,7 @@ use crate::datapackage::{ForeignKey, ForeignKeyReference};
 
 impl Edge {
     /// Build the Frictionless foreignKey entry for this edge, carrying status,
-    /// confidence and evidence as custom properties (choice 0003).
+    /// confidence and evidence as custom properties.
     pub fn to_foreign_key(&self) -> ForeignKey {
         ForeignKey {
             fields: vec![self.child.column.clone()],
@@ -826,7 +825,7 @@ impl Edge {
     /// Standard portable constraint DDL for an accepted edge. Emitted in
     /// ALTER form — legible, and accepted by standard SQL engines (Postgres). Note
     /// DuckDB only enforces FKs declared at CREATE-table time, so this artifact is
-    /// the reviewable migration, not something dovetail runs (choice 0001).
+    /// the reviewable migration, not something dovetail runs.
     pub fn constraint_ddl(&self) -> String {
         let cname = format!("fk_{}_{}", self.child.table, self.child.column);
         format!(
@@ -841,7 +840,7 @@ impl Edge {
 }
 
 /// Constraint DDL for every accepted edge, in stable order. Only accepted
-/// edges compile (choice 0007).
+/// edges compile.
 pub fn constraint_ddl(edges: &[Edge]) -> String {
     let mut accepted: Vec<&Edge> = accepted(edges);
     accepted.sort_by(|a, b| a.child.qualified().cmp(&b.child.qualified()));

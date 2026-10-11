@@ -9,8 +9,8 @@ license = "MIT"
 repository = "https://github.com/meridian-online/dovetail"
 
 [workspace.dependencies]
-# Sibling meridian crates (choice 0012: finetype as an in-process library
-# dependency of dovetail-core). finetype-core carries the light structure/schema
+# Sibling meridian crates (finetype is an in-process library dependency of
+# dovetail-core, not a subprocess). finetype-core carries the light structure/schema
 # primitives; finetype-model carries the candle-backed column classifier used by
 # the finetype-guided detector. Pinned to the finetype v0.6.60 git tag — durable
 # and CI-resolvable (public repo), reproducible via the committed Cargo.lock, and
@@ -29,7 +29,7 @@ anyhow = "1"
 thiserror = "2"
 
 # Size-optimised release profile. The binary is dominated by statically-linked
-# bundled DuckDB (choice 0014); release already compiles DuckDB optimised without
+# bundled DuckDB; release already compiles DuckDB optimised without
 # debug info, and these settings trim the rest:
 #   strip   — drop debug symbols (the bulk of the debug-build size)
 #   lto     — thin cross-crate dead-code elimination on the Rust side

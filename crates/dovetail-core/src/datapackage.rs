@@ -1,6 +1,6 @@
 //! Data Package assembly. survey serialises both models into one
 //! Frictionless Data Package descriptor (`datapackage.json`) — the canonical
-//! artifact (choice 0002). This module builds the per-resource half: load
+//! artifact. This module builds the per-resource half: load
 //! recipe reference, Table Schema, and resource-level provenance carried on the
 //! standard fields (`bytes`, `hash`, `format`, `mediatype`).
 //!
@@ -70,7 +70,7 @@ fn embedded_taxonomy() -> &'static Taxonomy {
 
 /// A Frictionless Table Schema foreign key. Shape per the spec:
 /// `{fields, reference: {resource, fields}}`. relate's evidence, confidence and
-/// status ride as namespaced custom properties (choice 0003).
+/// status ride as namespaced custom properties.
 #[derive(Debug, Clone, Serialize)]
 pub struct ForeignKey {
     pub fields: Vec<String>,
@@ -100,8 +100,8 @@ pub struct TableSchema {
 }
 
 /// dovetail's load recipe, carried as a namespaced custom property on the
-/// resource. The `rung` records which fallback-ladder rung was chosen (choice
-/// 0004); `sql` references the emitted standalone load.
+/// resource. The `rung` records which fallback-ladder rung was chosen;
+/// `sql` references the emitted standalone load.
 #[derive(Debug, Clone, Serialize)]
 pub struct LoadRecipe {
     pub rung: String,

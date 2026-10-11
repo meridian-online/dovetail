@@ -1,7 +1,7 @@
 //! The detection layer. A [`Detector`] reads a sampled input and reports its
 //! [`Detection`] — format, row-level structure, and columns. Detection is the
-//! make-or-break capability for survey (spec 2026-06-20-survey-detection-and-load):
-//! a wrong structure means the emitted recipe loads the wrong table.
+//! make-or-break capability for survey: a wrong structure means the emitted
+//! recipe loads the wrong table.
 //!
 //! Two implementations ship for the head-to-head eval:
 //! - [`ShapeHeuristicDetector`] — pure structural inspection, no finetype.

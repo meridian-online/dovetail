@@ -72,8 +72,8 @@ iteration on the structure layer.
 
 ## finetype dependency
 
-dovetail consumes finetype as an **in-process library dependency** (choice
-0012): `finetype-core` and `finetype-model` are git dependencies on the public
+dovetail consumes finetype as an **in-process library dependency**:
+`finetype-core` and `finetype-model` are git dependencies on the public
 finetype repo, pinned to a tag under `[workspace.dependencies]` in the root
 `Cargo.toml`. `finetype-core` carries the light structure/schema primitives and
 the authoritative Frictionless type map (`frictionless_for`); `finetype-model`

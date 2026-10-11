@@ -1,6 +1,5 @@
 # jaq ↔ jq divergence notes
 
-**Spec:** 2026-06-21-jaq-passthrough-shim
 **Embedded:** jaq-core 3.1.0 · **Reference:** system jq 1.8.2
 
 The parity claim is scoped: *embedded jaq is byte-identical to canonical jq on

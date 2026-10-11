@@ -67,7 +67,7 @@ fn every_emitted_descriptor_validates_against_the_frictionless_profile() {
     );
 }
 
-// AC6: a descriptor with a nominated field — carrying `constraints` and the
+// A descriptor with a nominated field — carrying `constraints` and the
 // `x-finetype-nominated` marker alongside the standard fields — still
 // validates against the vendored profile with zero errors.
 #[test]
