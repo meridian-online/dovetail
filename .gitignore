@@ -5,4 +5,5 @@ brief.md
 /target
 # roborev snapshots
 /.roborev/
+# Kata per-machine overrides
 .kata.local.toml
