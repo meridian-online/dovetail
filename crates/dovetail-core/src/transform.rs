@@ -1,10 +1,9 @@
-//! Embedded jaq transform (spec 2026-06-21-jaq-passthrough-shim).
+//! Embedded jaq transform.
 //!
 //! `run_jaq` executes a jq program over input bytes through embedded, vendored
-//! jaq — no system jq on this path (choice 0005). It is **true passthrough**:
+//! jaq — no system jq on this path. It is **true passthrough**:
 //! the program string is handed to the engine verbatim and echoed back in
-//! [`JaqOutput::program`], so a reviewer reads exactly what ran (the legibility
-//! value, brief principle 4). The engine never rewrites it.
+//! [`JaqOutput::program`], so a reviewer reads exactly what ran. The engine never rewrites it.
 
 use jaq_core::load::{Arena, File, Loader};
 use jaq_core::{data, unwrap_valr, Compiler, Ctx, Vars};
@@ -13,7 +12,7 @@ use jaq_json::Val;
 /// The embedded jaq-core version. Tracks the `jaq-core` pin in this
 /// crate's Cargo.toml / Cargo.lock; kept retrievable so emitted artifacts can
 /// stamp what produced them. Auto-deriving this from Cargo.lock at build time is
-/// a choice-0013 hardening follow-up.
+/// a possible hardening follow-up.
 pub const JAQ_CORE_VERSION: &str = "3.1.0";
 
 #[derive(Debug, thiserror::Error)]

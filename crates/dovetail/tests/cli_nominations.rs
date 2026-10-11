@@ -1,4 +1,4 @@
-//! CLI-level proof of AC5: `dovetail survey --nominations` exits non-zero on
+//! CLI-level proof that `dovetail survey --nominations` exits non-zero on
 //! a nominated label the taxonomy does not carry, naming the column and the
 //! label — the shape a script or CI job actually checks, not just the library
 //! call underneath it.
@@ -15,7 +15,7 @@ fn tmp_dir(tag: &str) -> PathBuf {
 
 #[test]
 fn survey_with_an_unknown_nominated_label_exits_non_zero_naming_column_and_label() {
-    let dir = tmp_dir("ac5");
+    let dir = tmp_dir("unknown-label");
     let csv = dir.join("edgar.csv");
     std::fs::write(&csv, "corpus\nhello\n").unwrap();
     let nominations = dir.join("nominations.finetype.json");
@@ -50,7 +50,7 @@ fn survey_with_an_unknown_nominated_label_exits_non_zero_naming_column_and_label
 
 #[test]
 fn survey_with_a_nominated_column_prints_the_marker_and_constraints() {
-    let dir = tmp_dir("ac1-cli");
+    let dir = tmp_dir("nominated-column");
     let csv = dir.join("edgar.csv");
     std::fs::write(&csv, "corpus,id\nhello world,1\nmore text,2\n").unwrap();
     let nominations = dir.join("nominations.finetype.json");

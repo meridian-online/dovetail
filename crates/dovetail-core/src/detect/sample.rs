@@ -1,6 +1,6 @@
 //! A sampled input — the bytes (or a bounded head of them) a detector reads.
 //! Sampling stays in-process and never loads into DuckDB; DuckDB executes only
-//! in the round-trip test (keeps choice 0001 clean; review-spec finding 3).
+//! in the round-trip test.
 
 use std::path::{Path, PathBuf};
 

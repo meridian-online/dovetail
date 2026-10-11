@@ -3,10 +3,20 @@
 #
 # This repository is public. The planning that drives it is not. Identifiers that
 # only resolve inside the private planning tracker — decision records, task ids,
-# milestone ids, acceptance-criterion shorthand, document ids, card ids, spec AC
-# ids — are meaningless to anyone reading this repo and leak the shape of private
-# work. They have reached main repeatedly under a convention-only rule. This is
-# the enforcement: it runs in CI, and it is meant to be the first job to go red.
+# milestone ids, acceptance-criterion shorthand, document ids, card ids and
+# titles, spec criterion ids, choice records, dated spec names, review findings,
+# vault links and paths — are meaningless to anyone reading this repo and leak
+# the shape of private work. This gate runs in CI and is meant to be the first
+# job to go red.
+#
+# THE SHAPES ARE NOT IN THIS FILE. scripts/public-hygiene-rules.txt holds them,
+# one "<label>|<PCRE>" per line, and scripts/check-history-hygiene.sh, where a
+# repository carries it, reads the same file for commit messages and pull
+# request text. One list, so a shape added for one surface reaches the other.
+#
+# This file, its rules, its innocent-strings fixture and its self-test are the
+# same bytes in every public repository that carries them. Change them at the
+# canonical copy, not here; the allowlist is the one per-repository file.
 #
 # Usage (no arguments, from anywhere inside the repo):
 #
@@ -15,152 +25,135 @@
 # Exit codes:
 #   0  clean
 #   1  one or more violations found
-#   2  the gate could not run correctly — a broken rule, a malformed allowlist
-#      entry, a stale allowlist entry, or a git without PCRE. ALWAYS a hard
-#      failure: a gate that cannot run must never look like a gate that passed.
+#   2  the gate could not run correctly — a broken rule, a missing or malformed
+#      rules file, a malformed or stale allowlist entry, a git without PCRE, or
+#      no perl. ALWAYS a hard failure: a gate that cannot run must never look
+#      like a gate that passed.
 #
 # Its own regression test is scripts/check-public-hygiene-selftest.sh.
 #
 # What this covers, and what it does NOT
 # --------------------------------------
-# COVERED: the content of TRACKED files in the current checkout, via `git grep`.
-# Build artifacts, target/, node modules and anything else ignored are invisible
-# by construction, so a dirty working tree full of generated files can never make
-# the gate cry wolf.
+# COVERED: the content of TRACKED files in the current checkout, via `git grep`,
+# one line at a time and then each line joined to the next (see "Wrapped
+# identifiers" below). Ignored and untracked files are invisible by
+# construction, so a dirty working tree cannot make the gate cry wolf.
 #
-# NOT COVERED, and you have to watch these yourself:
-#   * commit messages,
-#   * PR titles, PR descriptions and review comments,
-#   * branch names,
-#   * anything in git history that is no longer in the current tree,
-#   * issues, releases, wiki, and everything else that lives on the forge rather
-#     than in the repository.
-# Those are real leak vectors here — historically among the commonest — and
-# nothing in this file inspects them.
+# NOT COVERED: commit messages and pull request text (the history gate's job
+# where a repository carries one), review comments, branch names, issues,
+# releases, and everything else that lives on the forge rather than in the
+# repository.
 #
-# ---------------------------------------------------------------------------
 # On false positives
-# ---------------------------------------------------------------------------
+# ------------------
 # A gate that cries wolf gets disabled within a week, which is worse than no
-# gate. Every pattern below was measured against the real tree before it was
-# committed, and scripts/public-hygiene-innocent-strings.txt is a tracked fixture
-# of innocent-but-similar-looking strings the gate must stay silent on. That
-# fixture is scanned like any other tracked file, so a pattern that starts biting
-# real-world prose or Rust turns the gate red on its own fixture.
-#
-# On case: every rule is case-INSENSITIVE except `bare-ticket-ref`, and that one
-# exception is deliberate — a lowercase t-plus-two-digits is a common substring
-# of hex digests and identifiers, and matching it would drown the gate. Every
-# other shape leaks in prose, where sentence-initial capitalisation is the most
-# likely form, so anything that is case-sensitive there is a hole by default.
-#
-# The non-obvious guards, and what they are protecting:
-#
-# * Bare ticket refs. A bare capital-T-plus-digits collides head-on with Rust
-#   generic parameters. Guards: TWO OR MORE digits (real ticket ids here are
-#   two-digit; generic params are effectively always single-digit), and
-#   lookarounds excluding the type positions generics appear in — after `<`,
-#   `,`, `&`, `(`, after a colon-space and after an arrow-space; and before `>`,
-#   `,`, `:`, `(`. Excluding a preceding digit is what keeps ISO timestamps
-#   (`...-20T10:30:00`) out. A single-digit ticket ref is caught only in its
-#   parenthesised form, and that form requires the `(` not to follow an
-#   identifier, so a Rust `Fn(T<NN>)` is left alone.
-#   Known residual: a multi-digit generic in a tuple type's non-first position
-#   still fires. That was the price of catching a comma-separated list of ticket
-#   refs in prose, which is the commoner leak.
-#
-# * Milestone ids. The bare form needs TWO OR MORE digits and rejects a
-#   preceding `/`, `-` or `_`. That is what keeps URL path segments
-#   (`https://example.com/m-2/spec`), prose like `Matrix cell m-1`, and CSS
-#   custom properties in the token pipeline (`--m-accent-bg`, `--m-2`) out. The
-#   single-digit form is caught only when the word "milestone" is right there.
-#
-# * Acceptance criteria. Case-INSENSITIVE, but a match may not be followed by a
-#   hex digit — that is what keeps lockfile git revisions out, where a rev can
-#   end `...ac#4afea48...`.
-#
-# * Spec AC ids. Deliberately NOT guarded against being part of a larger
-#   identifier: test-function names and temp-dir literals that embed a spec AC id
-#   are exactly the leak, and they are being renamed rather than exempted. The
-#   `[-_]` before `ac` is load-bearing for a different reason: without it the
-#   pattern matches inside hex digests (`fbac503`, `dedcac1`), of which this tree
-#   has hundreds.
-#
-# * Card ids. Three or four digits required; the workflow vocabulary word "card"
-#   and the literal UI cards in the renderer carry no number and are left alone.
-#
-# If a pattern flags something legitimate, FIX THE PATTERN and add the innocent
-# string to the fixture. The allowlist is for genuine content that must stay,
-# not for papering over a bad regex.
-# ---------------------------------------------------------------------------
-
+# gate. scripts/public-hygiene-innocent-strings.txt is a tracked fixture of
+# innocent strings that look like identifiers, and it is scanned like any other
+# tracked file, so a pattern loosened until it bites honest prose turns the gate
+# red on its own fixture. If a pattern flags something legitimate, fix the
+# pattern and add the string to the fixture. The allowlist is for genuine
+# content that must stay, not for papering over a loose pattern.
 set -uo pipefail
 
-# Run from the repo root regardless of where the caller invoked us.
 REPO_ROOT="$(git rev-parse --show-toplevel)" || {
 	echo "check-public-hygiene: not inside a git repository" >&2
 	exit 2
 }
 cd "$REPO_ROOT" || exit 2
 
+RULES_FILE="scripts/public-hygiene-rules.txt"
 ALLOWLIST="scripts/public-hygiene-allowlist.txt"
 
-# The rules use PCRE lookarounds, which git only offers when it was built with
-# PCRE. Fail loudly rather than silently matching nothing — a gate that quietly
-# no-ops is the failure mode this whole file exists to prevent.
-# git grep exits 0 on a match, 1 on no match, and >1 on an error such as "cannot
-# use Perl-compatible regexes when not compiled with USE_LIBPCRE".
+# The rules use PCRE lookarounds, which git only offers when built with PCRE.
+# git grep exits 0 on a match, 1 on none, and >1 on an error such as "cannot use
+# Perl-compatible regexes when not compiled with USE_LIBPCRE".
 git grep -qP -e 'zzzz(?<!qqqq)' -- . >/dev/null 2>&1
 pcre_rc=$?
 if [[ $pcre_rc -gt 1 ]]; then
 	echo "check-public-hygiene: this git cannot run PCRE patterns (git grep -P exited $pcre_rc)" >&2
-	echo "    install a git built with PCRE, or the gate cannot run" >&2
+	exit 2
+fi
+# The wrapped-identifier pass runs the same patterns in perl, whose regex
+# dialect is the one PCRE copies for every construct the rules use.
+if ! command -v perl >/dev/null 2>&1; then
+	echo "check-public-hygiene: perl is not on PATH, so wrapped identifiers cannot be checked" >&2
 	exit 2
 fi
 
 # ---------------------------------------------------------------------------
-# Rules: "<label>|<PCRE>". Anything git grep -P accepts.
-#
-# Several labels carry more than one pattern. Matches are deduplicated per
-# (label, file, line), so one offending line is reported once per rule even when
-# two of that rule's patterns fire on it.
-#
-# A pattern may never match a `|`: the allowlist format is pipe-separated and
-# relies on matched text being unable to collide with the separator. Everything
-# else the patterns can emit — `#`, `-`, `_`, spaces, parentheses — is fine.
+# Rules.
 # ---------------------------------------------------------------------------
-RULES=(
-	'private-decision-record|(?i)(?<![A-Za-z0-9])decision[-_][0-9]+'
-	'planning-task-id|(?i)(?<![A-Za-z0-9])task[-_][0-9]+'
-	'bare-ticket-ref|(?<![-_A-Za-z0-9<,:&(])(?<!: )(?<!-> )T[0-9]{2,3}(?![-_A-Za-z0-9>,:(])'
-	'bare-ticket-ref|(?<![-_A-Za-z0-9>])\(T[0-9]{1,3}\)'
-	'milestone-id|(?i)(?<![-_A-Za-z0-9/])m-[0-9]{2,}(?![-_A-Za-z0-9])'
-	'milestone-id|(?i)(?<![A-Za-z0-9])milestones?[ _-](?:m[-_]?)?[0-9]+(?![-_A-Za-z0-9])'
-	'acceptance-criterion|(?i)(?<![A-Za-z0-9])ac ?#[0-9]+(?![0-9a-f])'
-	'private-doc-id|(?i)(?<![A-Za-z0-9])doc[-_][0-9]+(?![A-Za-z])'
-	'planning-card-id|(?i)(?<![A-Za-z0-9])cards?[ _-]#?[0-9]{3,4}(?![0-9])'
-	'spec-ac-id|(?i)[a-z]{2,6}[-_]ac[-_]?[0-9]+[a-z]?(?![0-9])'
-	'spec-ac-id|(?i)(?<![A-Za-z0-9])ac[-_][0-9]+[a-z]?(?![0-9])'
+if [[ ! -f "$RULES_FILE" ]]; then
+	echo "check-public-hygiene: $RULES_FILE is missing — the gate has no rules to run" >&2
+	exit 2
+fi
+declare -a RULES=()
+rules_lineno=0
+bad_rules=0
+while IFS= read -r raw || [[ -n "$raw" ]]; do
+	rules_lineno=$((rules_lineno + 1))
+	line="${raw%$'\r'}"
+	[[ -z "${line//[[:space:]]/}" ]] && continue
+	[[ "${line#"${line%%[![:space:]]*}"}" == \#* ]] && continue
+	if [[ "$line" != *"|"* ]]; then
+		echo "check-public-hygiene: $RULES_FILE:$rules_lineno: expected '<label>|<pattern>'" >&2
+		echo "    $line" >&2
+		bad_rules=1
+		continue
+	fi
+	r_label="${line%%|*}"
+	r_pattern="${line#*|}"
+	if [[ -z "$r_label" || -z "$r_pattern" ]]; then
+		echo "check-public-hygiene: $RULES_FILE:$rules_lineno: label and pattern are both required" >&2
+		bad_rules=1
+		continue
+	fi
+	RULES+=("$r_label|$r_pattern")
+done <"$RULES_FILE"
+if [[ $bad_rules -ne 0 ]]; then
+	exit 2
+fi
+if [[ ${#RULES[@]} -eq 0 ]]; then
+	echo "check-public-hygiene: $RULES_FILE declares no rules — an empty gate reports clean" >&2
+	exit 2
+fi
+
+# Paths a label does not scan, as "<label> <pathspec>" pairs. card-slug skips
+# vendored source: upstream documentation URLs carry long kebab-case runs that
+# nobody here wrote, and a leak needs someone here to have written it.
+RULE_EXTRA_EXCLUDES=(
+	'card-slug vendor/**'
 )
+
+# ---------------------------------------------------------------------------
+# The path rule: a document path rooted in another checkout.
+#
+# Every rule in the rules file matches a planning identifier. A relative path to
+# a `.md` document in a sibling checkout carries none, resolves on the author's
+# disk and nowhere else, and when that checkout is private it discloses its
+# layout. The pattern cannot decide this alone, so it lives here rather than in
+# the rules file: a hit is cleared when its leading segment is a top-level entry
+# of this repository, or when it resolves, from the directory of the file that
+# wrote it, to a tracked file.
+#
+# Only `.md`: without the extension the pattern collides with MIME types and
+# with module paths in prose. `$`, `{` and `}` are in the lookbehind because an
+# interpolated path has a variable where its root segment should be.
+# ---------------------------------------------------------------------------
+PATH_LABEL='cross-repo-doc-path'
+PATH_PATTERN='(?i)(?<![-_A-Za-z0-9/.:${}])(?:\.{1,2}/)*[A-Za-z0-9_.][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)+\.md(?![A-Za-z0-9])'
 
 # ---------------------------------------------------------------------------
 # Allowlist.
 #
-# Format, one entry per line, THREE pipe-separated fields:
+# One entry per line, THREE pipe-separated fields:
 #
 #     <tracked/file/path> | <exact offending text> | <why this is legitimate>
 #
-# `|` is the separator precisely because no rule pattern can ever match a `|`,
-# so the offending text — which routinely contains `#`, `-` and `_` — can never
-# collide with the separator. All three fields are required and none may be
-# empty. Anything that does not parse is a hard error (exit 2), so the escape
-# hatch cannot be used silently or reached by accident.
-#
-# Line numbers are deliberately NOT part of an entry — they drift on every edit.
-# Instead every entry must MATCH SOMETHING: an entry that suppresses nothing is
-# also a hard error, so a stale allowlist cannot rot into fake coverage.
-#
-# Blank lines and whole-line `#` comments are ignored.
+# All three are required. Anything that does not parse is exit 2, and so is an
+# entry that suppresses nothing, so a stale allowlist cannot rot into coverage.
+# Line numbers are not part of an entry; they drift on every edit. Blank lines
+# and whole-line `#` comments are ignored.
 # ---------------------------------------------------------------------------
 declare -a ALLOW_PATH=()
 declare -a ALLOW_TEXT=()
@@ -179,31 +172,25 @@ if [[ -f "$ALLOWLIST" ]]; then
 	bad_allow=0
 	while IFS= read -r raw || [[ -n "$raw" ]]; do
 		lineno=$((lineno + 1))
-		# Strip a trailing CR, in case someone edits on Windows.
 		line="${raw%$'\r'}"
 		trimmed="$(trim "$line")"
 		[[ -z "$trimmed" ]] && continue
 		[[ "$trimmed" == \#* ]] && continue
-
-		# Split on `|` into exactly three fields, counting the separators
-		# rather than reading into an array: `read -r -a` DISCARDS a trailing
-		# empty field, so `path | text |` — an entry whose author could not
-		# think of a reason, which is precisely the shape the next check
-		# exists to refuse — arrived as two fields and was reported as a
-		# malformed line instead of a reasonless one.
+		# Count the separators rather than reading into an array: `read -r -a`
+		# drops a trailing empty field, so an entry with no reason would arrive
+		# as two fields and be reported as malformed instead of reasonless.
 		seps="${line//[^|]/}"
 		if [[ ${#seps} -ne 2 ]]; then
 			echo "check-public-hygiene: $ALLOWLIST:$lineno: expected 3 '|'-separated fields, got $((${#seps} + 1))" >&2
 			echo "    $line" >&2
-			echo "    format: <tracked/file/path> | <exact offending text> | <why this is legitimate>" >&2
 			bad_allow=1
 			continue
 		fi
 		rest="${line#*|}"
 		a_path="$(trim "${line%%|*}")"
 		a_text="$(trim "${rest%%|*}")"
-		a_reason="$(trim "${rest#*|}")"
-		if [[ -z "$a_path" || -z "$a_text" || -z "$a_reason" ]]; then
+		a_why="$(trim "${rest#*|}")"
+		if [[ -z "$a_path" || -z "$a_text" || -z "$a_why" ]]; then
 			echo "check-public-hygiene: $ALLOWLIST:$lineno: path, text and explanation are all required" >&2
 			echo "    $line" >&2
 			bad_allow=1
@@ -218,10 +205,9 @@ if [[ -f "$ALLOWLIST" ]]; then
 		exit 2
 	fi
 fi
-
 ALLOW_COUNT=${#ALLOW_PATH[@]}
 
-# Returns 0 — and marks the entry used — when this file/text pair is allowlisted.
+# Returns 0, and marks the entry used, when this file/text pair is allowlisted.
 is_allowed() {
 	local file="$1" text="$2" i
 	for ((i = 0; i < ALLOW_COUNT; i++)); do
@@ -238,74 +224,234 @@ is_allowed() {
 # ---------------------------------------------------------------------------
 violations=0
 allowed=0
-# Newline-delimited "<label>:<file>:<line>" keys already reported. A plain string
-# rather than an associative array on purpose: macOS still ships bash 3.2, which
-# has no `declare -A`, and this gate has to run on a developer's machine as
-# readily as on CI.
+# Newline-delimited "<label>:<file>:<line>" keys already reported. A string, not
+# an associative array: macOS ships bash 3.2, which has no `declare -A`.
 seen_keys=""
 
-hits="$(mktemp)" || exit 2
-errs="$(mktemp)" || exit 2
-trap 'rm -f "$hits" "$errs"' EXIT
+work="$(mktemp -d)" || exit 2
+trap 'rm -rf "$work"' EXIT
+hits="$work/hits"
+errs="$work/errs"
+tracked="$work/tracked"
+toplevel="$work/toplevel"
+git ls-files >"$tracked" || exit 2
+sed 's|/.*||' "$tracked" | sort -u >"$toplevel" || exit 2
+
+# Runs one pattern over the tracked files into $hits. The exit code is checked
+# before the output is read: a broken pattern makes git grep exit 128 and print
+# nothing, which without this check reads exactly like "no violations".
+scan_or_die() {
+	local label="$1" pattern="$2" rc errline
+	shift 2
+	git grep -PIn -o -e "$pattern" -- . ":(exclude)$ALLOWLIST" "$@" >"$hits" 2>"$errs"
+	rc=$?
+	[[ $rc -le 1 ]] && return 0
+	echo "check-public-hygiene: RULE FAILED TO RUN — '$label' (git grep exited $rc)" >&2
+	echo "    pattern: $pattern" >&2
+	while IFS= read -r errline; do
+		[[ -n "$errline" ]] && echo "    $errline" >&2
+	done <"$errs"
+	echo "    the gate cannot report clean while a rule is broken — fix the pattern" >&2
+	exit 2
+}
+
+report() {
+	local label="$1" file="$2" line="$3" text="$4" key src
+	key="$label:$file:$line"
+	case $'\n'"$seen_keys" in
+	*$'\n'"$key"$'\n'*) return 0 ;;
+	esac
+	seen_keys="$seen_keys$key"$'\n'
+	violations=$((violations + 1))
+	printf '%s:%s: %s: %s\n' "$file" "$line" "$label" "$text"
+	src="$(sed -n "${line}p" -- "$file" 2>/dev/null)"
+	[[ -n "$src" ]] && printf '    | %s\n' "$src"
+	return 0
+}
+
+# The pathspecs a label skips, one per line.
+excludes_for() {
+	local entry
+	for entry in "${RULE_EXTRA_EXCLUDES[@]}"; do
+		[[ "${entry%% *}" == "$1" ]] && printf '%s\n' "${entry#* }"
+	done
+}
 
 for rule in "${RULES[@]}"; do
 	label="${rule%%|*}"
 	pattern="${rule#*|}"
-
-	# -I skips binary files, -n gives line numbers, -o prints just the match.
-	#
-	# The allowlist is excluded from the scan: by construction it quotes the
-	# exact text it is waving through, so scanning it would make every entry
-	# self-violating. It is the one file with that property — the checker script
-	# itself is scanned (its patterns contain no literal ids).
-	#
-	# The exit code is checked BEFORE the output is read, and it is checked per
-	# rule. git grep exits 0 on a match, 1 on no match, and >1 on an error — a
-	# broken pattern exits 128 and prints nothing to stdout, which without this
-	# check reads exactly like "no violations" and lets the gate report clean
-	# while blind. Anything above 1 is fatal and names the rule.
-	git grep -PIn -o -e "$pattern" -- . ":(exclude)$ALLOWLIST" >"$hits" 2>"$errs"
-	grep_rc=$?
-	if [[ $grep_rc -gt 1 ]]; then
-		echo "check-public-hygiene: RULE FAILED TO RUN — '$label' (git grep exited $grep_rc)" >&2
-		echo "    pattern: $pattern" >&2
-		while IFS= read -r errline; do
-			[[ -n "$errline" ]] && echo "    $errline" >&2
-		done <"$errs"
-		echo "    the gate cannot report clean while a rule is broken — fix the pattern" >&2
-		exit 2
-	fi
-
+	extra=()
+	while IFS= read -r spec; do
+		[[ -n "$spec" ]] && extra+=(":(exclude)$spec")
+	done < <(excludes_for "$label")
+	scan_or_die "$label" "$pattern" ${extra[@]+"${extra[@]}"}
 	while IFS= read -r hit; do
 		[[ -z "$hit" ]] && continue
 		file="${hit%%:*}"
 		rest="${hit#*:}"
 		line="${rest%%:*}"
 		text="${rest#*:}"
-
 		if is_allowed "$file" "$text"; then
 			allowed=$((allowed + 1))
 			continue
 		fi
-
-		key="$label:$file:$line"
-		case $'\n'"$seen_keys" in
-		*$'\n'"$key"$'\n'*) continue ;;
-		esac
-		seen_keys="$seen_keys$key"$'\n'
-
-		violations=$((violations + 1))
-		printf '%s:%s: %s: %s\n' "$file" "$line" "$label" "$text"
-		# Show the offending source line so the fix is obvious without opening
-		# the file. `sed -n Np` is cheap and the file is tracked, so it exists.
-		src="$(sed -n "${line}p" -- "$file" 2>/dev/null)"
-		[[ -n "$src" ]] && printf '    | %s\n' "$src"
+		report "$label" "$file" "$line" "$text"
 	done <"$hits"
 done
 
-# A stale allowlist entry is a hole nobody is watching: it says "this exact text
-# in this exact file is fine", and once the text has moved or gone it suppresses
-# nothing while still looking like coverage. Hard error.
+# ---------------------------------------------------------------------------
+# Wrapped identifiers.
+#
+# git grep matches one line at a time, so an identifier whose word and number
+# sit either side of a line break — prose reflowed to a column, a doc comment
+# continued on the next `///` line — is invisible to every rule above. This pass
+# joins each line to the next with one space, after stripping the next line's
+# indentation and one leading comment marker (`//`, `///`, `//!`, `#`, `*`,
+# `--`, `;`, `>`, `<!--`), and runs every rule over the pair. A match is reported
+# only when it starts on the first line and ends on the second: one that fits on
+# a single line belongs to the scan above. The report names the first line.
+# ---------------------------------------------------------------------------
+: >"$work/rules.tsv"
+: >"$work/skip"
+for rule in "${RULES[@]}"; do
+	label="${rule%%|*}"
+	printf '%s\t%s\n' "$label" "${rule#*|}" >>"$work/rules.tsv"
+	while IFS= read -r spec; do
+		[[ -z "$spec" ]] && continue
+		git ls-files -- "$spec" | sed "s|^|$label	|" >>"$work/skip" || exit 2
+	done < <(excludes_for "$label")
+done
+
+git grep -z -I -l -e '' -- . ":(exclude)$ALLOWLIST" >"$work/textfiles" 2>"$errs"
+rc=$?
+if [[ $rc -gt 1 ]]; then
+	echo "check-public-hygiene: could not list the tracked text files (git grep exited $rc)" >&2
+	exit 2
+fi
+
+perl -e '
+	use strict;
+	use warnings;
+	my ($rules_file, $skip_file) = @ARGV;
+	my (@rules, %skip);
+	open my $rf, "<", $rules_file or die "cannot read $rules_file\n";
+	while (<$rf>) {
+		chomp;
+		my ($label, $pattern) = split /\t/, $_, 2;
+		my $re = eval { qr/$pattern/ } or die "rule $label does not compile in perl: $@";
+		push @rules, [$label, $re];
+	}
+	open my $sf, "<", $skip_file or die "cannot read $skip_file\n";
+	while (<$sf>) { chomp; $skip{$_} = 1; }
+	my @files = do { local $/ = "\0"; map { s/\0\z//r } <STDIN> };
+	my $marker = qr{(?://[/!]?|#+|\*|--|;+|>|<!--)};
+	for my $file (@files) {
+		open my $fh, "<", $file or next;
+		my @lines = <$fh>;
+		close $fh;
+		for my $i (0 .. $#lines - 1) {
+			(my $first = $lines[$i]) =~ s/\s+\z//;
+			(my $second = $lines[$i + 1]) =~ s/\s+\z//;
+			$second =~ s/\A\s*(?:$marker[ \t]*)?//;
+			next if $first eq "" || $second eq "";
+			my $joined = "$first $second";
+			my $cut = length $first;
+			for my $rule (@rules) {
+				my ($label, $re) = @$rule;
+				next if $skip{"$label\t$file"};
+				while ($joined =~ /$re/g) {
+					my ($start, $end) = ($-[0], $+[0]);
+					if ($start < $cut && $end > $cut + 1) {
+						printf "%s:%d:%s|%s\n", $file, $i + 1, $label,
+							substr($joined, $start, $end - $start);
+					}
+					pos($joined) = $start + 1 if $end == $start;
+				}
+			}
+		}
+	}
+' "$work/rules.tsv" "$work/skip" <"$work/textfiles" >"$hits" 2>"$errs"
+rc=$?
+if [[ $rc -ne 0 ]]; then
+	echo "check-public-hygiene: the wrapped-identifier pass failed (perl exited $rc)" >&2
+	while IFS= read -r errline; do
+		[[ -n "$errline" ]] && echo "    $errline" >&2
+	done <"$errs"
+	exit 2
+fi
+while IFS= read -r hit; do
+	[[ -z "$hit" ]] && continue
+	file="${hit%%:*}"
+	rest="${hit#*:}"
+	line="${rest%%:*}"
+	rest="${rest#*:}"
+	label="${rest%%|*}"
+	text="${rest#*|}"
+	if is_allowed "$file" "$text"; then
+		allowed=$((allowed + 1))
+		continue
+	fi
+	report "$label" "$file" "$line" "$text"
+done <"$hits"
+
+# ---------------------------------------------------------------------------
+# The path rule's scan.
+# ---------------------------------------------------------------------------
+
+# Normalises a relative path against a base directory, printing the result or
+# failing when `..` climbs above the repository root.
+resolve_rel() {
+	local rest="${1:+$1/}$2" seg stack=""
+	while [[ -n "$rest" ]]; do
+		seg="${rest%%/*}"
+		if [[ "$seg" == "$rest" ]]; then
+			rest=""
+		else
+			rest="${rest#*/}"
+		fi
+		case "$seg" in
+		'' | '.') continue ;;
+		'..')
+			[[ -z "$stack" ]] && return 1
+			if [[ "$stack" == */* ]]; then
+				stack="${stack%/*}"
+			else
+				stack=""
+			fi
+			;;
+		*) stack="${stack:+$stack/}$seg" ;;
+		esac
+	done
+	printf '%s' "$stack"
+}
+
+scan_or_die "$PATH_LABEL" "$PATH_PATTERN"
+while IFS= read -r hit; do
+	[[ -z "$hit" ]] && continue
+	file="${hit%%:*}"
+	rest="${hit#*:}"
+	line="${rest%%:*}"
+	text="${rest#*:}"
+	root_rel="$(resolve_rel "" "$text")" || root_rel=""
+	lead="${root_rel%%/*}"
+	if [[ -n "$lead" ]] && grep -Fxq -- "$lead" "$toplevel"; then
+		continue
+	fi
+	dir="${file%/*}"
+	[[ "$dir" == "$file" ]] && dir=""
+	here_rel="$(resolve_rel "$dir" "$text")" || here_rel=""
+	if [[ -n "$here_rel" ]] && grep -Fxq -- "$here_rel" "$tracked"; then
+		continue
+	fi
+	if is_allowed "$file" "$text"; then
+		allowed=$((allowed + 1))
+		continue
+	fi
+	report "$PATH_LABEL" "$file" "$line" "$text"
+done <"$hits"
+
+# A stale allowlist entry says "this exact text in this exact file is fine" and,
+# once the text has gone, suppresses nothing while still looking like coverage.
 stale=0
 for ((i = 0; i < ALLOW_COUNT; i++)); do
 	if [[ ${ALLOW_HITS[$i]} -eq 0 ]]; then
@@ -327,8 +473,9 @@ if [[ $violations -gt 0 ]]; then
 	echo "appear in a public repo. Delete the pointer and, if it carried meaning, replace it"
 	echo "with the actual rationale in plain English."
 	echo
-	echo "If a match is genuinely legitimate, first try to make the pattern more precise in"
-	echo "scripts/check-public-hygiene.sh, adding the innocent string to"
+	echo "If a match is genuinely legitimate, first make the pattern more precise —"
+	echo "for $PATH_LABEL, PATH_PATTERN in scripts/check-public-hygiene.sh; for any"
+	echo "other label, its line in $RULES_FILE — and add the innocent string to"
 	echo "scripts/public-hygiene-innocent-strings.txt so it stays fixed. Only if that is"
 	echo "impossible, add a line to $ALLOWLIST in the form:"
 	echo

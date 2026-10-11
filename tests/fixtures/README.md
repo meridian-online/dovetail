@@ -1,7 +1,6 @@
 # Survey detection fixture corpus
 
-Ground-truth inputs for the survey detection eval (spec
-`2026-06-20-survey-detection-and-load`). Each fixture is a directory
+Ground-truth inputs for the survey detection eval. Each fixture is a directory
 holding one data file plus a `manifest.json` describing the expected detection
 result. The eval harness scores a detector by comparing its output
 against these manifests; the round-trip test checks that the emitted
@@ -31,4 +30,4 @@ against these manifests; the round-trip test checks that the emitted
 - **single-object** — a JSON file that is one object; one row.
 
 The eval scores an exact full-structure match per fixture (recursive levels
-all-or-nothing — per review-spec finding 2).
+all-or-nothing).

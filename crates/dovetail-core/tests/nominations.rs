@@ -26,12 +26,12 @@ fn detect(path: &Path) -> dovetail_core::Detection {
     ShapeHeuristicDetector::new().detect(&input)
 }
 
-// AC1: a nominated column carries the declared label, the nomination marker,
+// A nominated column carries the declared label, the nomination marker,
 // the taxonomy's type, and its validation bounds as `constraints` — while an
 // undeclared column on the same resource is untouched.
 #[test]
 fn a_nominated_column_carries_the_label_marker_type_and_constraints() {
-    let dir = tmp_dir("ac1");
+    let dir = tmp_dir("carries-constraints");
     let csv = write_csv(
         &dir,
         "edgar.csv",
@@ -80,11 +80,11 @@ fn a_nominated_column_carries_the_label_marker_type_and_constraints() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// AC2: with no nominations at all, no field carries `constraints` or the
+// With no nominations at all, no field carries `constraints` or the
 // nomination marker.
 #[test]
 fn no_nominations_carries_no_constraints_or_marker() {
-    let dir = tmp_dir("ac2");
+    let dir = tmp_dir("no-nominations");
     let csv = write_csv(&dir, "edgar.csv", "corpus,other\nhello world,1\n");
 
     let det = detect(&csv);
@@ -98,7 +98,7 @@ fn no_nominations_carries_no_constraints_or_marker() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// AC2, sharper: a column detection typed on its own (no nomination at all)
+// Sharper: a column detection typed on its own (no nomination at all)
 // still carries no `constraints`. `ShapeHeuristicDetector` above never
 // assigns a semantic type, so it cannot exercise the path where
 // `col.semantic_type` is set without a nomination — this uses
@@ -111,7 +111,7 @@ fn no_nominations_carries_no_constraints_or_marker() {
 fn a_detected_but_unnominated_semantic_type_still_carries_no_constraints() {
     use dovetail_core::FinetypeGuidedDetector;
 
-    let dir = tmp_dir("ac2-detected-type");
+    let dir = tmp_dir("detected-type");
     let csv = write_csv(
         &dir,
         "signups.csv",
@@ -139,12 +139,12 @@ fn a_detected_but_unnominated_semantic_type_still_carries_no_constraints() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// AC3: a nominated label whose taxonomy definition carries a `pattern`
+// A nominated label whose taxonomy definition carries a `pattern`
 // publishes the length bounds but no `pattern` and no `enum` — dovetail read
 // no values under the nomination, so it makes no claim about them.
 #[test]
 fn a_pattern_bearing_nomination_publishes_bounds_but_no_pattern_or_enum() {
-    let dir = tmp_dir("ac3");
+    let dir = tmp_dir("pattern-bearing");
     let csv = write_csv(&dir, "signups.csv", "email\nada@example.com\n");
     let nominations = Nominations::parse(
         r#"{"resources":{"signups":{"email":{"label":"identity.person.email"}}}}"#,
@@ -167,12 +167,12 @@ fn a_pattern_bearing_nomination_publishes_bounds_but_no_pattern_or_enum() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// AC4: a nominations file declaring a column under one stem only nominates
+// A nominations file declaring a column under one stem only nominates
 // that resource's field and leaves an identically-named column on a
 // differently-stemmed resource alone.
 #[test]
 fn a_nomination_applies_only_to_its_declared_stem() {
-    let dir = tmp_dir("ac4");
+    let dir = tmp_dir("declared-stem");
     let csv_a = write_csv(&dir, "a.csv", "corpus\nhello\n");
     let csv_b = write_csv(&dir, "b.csv", "corpus\nworld\n");
     let nominations = Nominations::parse(
@@ -192,11 +192,11 @@ fn a_nomination_applies_only_to_its_declared_stem() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// AC5: a nominated label the taxonomy does not carry is refused, naming the
+// A nominated label the taxonomy does not carry is refused, naming the
 // column and the label.
 #[test]
 fn an_unknown_nominated_label_is_refused_naming_the_column_and_label() {
-    let dir = tmp_dir("ac5");
+    let dir = tmp_dir("unknown-label");
     let csv = write_csv(&dir, "edgar.csv", "corpus\nhello\n");
     let nominations = Nominations::parse(
         r#"{"resources":{"edgar":{"corpus":{"label":"not.a.real.label"}}}}"#,

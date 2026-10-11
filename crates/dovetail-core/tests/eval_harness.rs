@@ -10,7 +10,7 @@ use dovetail_core::eval::{eval_detector, load_corpus, render_report, EvalResult}
 #[cfg(feature = "finetype-guided")]
 use dovetail_core::detect::FinetypeGuidedDetector;
 
-/// The >=90% floor, treated as fixed (review-spec finding 1).
+/// The >=90% floor, treated as fixed.
 const DETECTION_BAR: f64 = 0.90;
 
 fn repo_root() -> PathBuf {

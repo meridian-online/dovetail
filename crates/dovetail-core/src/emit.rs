@@ -4,13 +4,13 @@
 //! exactly which reader and parameters run, with no cleverness to decode.
 //!
 //! Emission never touches DuckDB — it produces text. DuckDB executes only in the
-//! round-trip test, never on survey's own path (choice 0001).
+//! round-trip test, never on survey's own path.
 
 use crate::structure::{Detection, Format, Structure};
 
 /// The duplicate-column policy survey records when an input has repeated column
 /// names. `Rename` is the default — deterministic, and keeps every
-/// column's data rather than dropping silently (review-spec finding 4).
+/// column's data rather than dropping silently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DuplicatePolicy {
     #[default]

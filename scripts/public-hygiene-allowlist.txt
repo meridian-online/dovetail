@@ -22,3 +22,4 @@
 # string to scripts/public-hygiene-innocent-strings.txt so the tightening stays
 # fixed. The allowlist is for genuine content that must stay, never for papering
 # over a bad regex.
+crates/dovetail-core/tests/eval_harness.rs | target/eval-results.md | The path the eval test writes its report to: a build-output file the code constructs under cargo's target/ directory, not a pointer to a planning document.

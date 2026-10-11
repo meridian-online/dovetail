@@ -4,8 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The on-disk format of an input. The SQL-native set for the survey MVP; jaq /
-/// calcard / calamine formats are out of scope here (spec
-/// 2026-06-20-survey-detection-and-load).
+/// calcard / calamine formats are out of scope here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Format {
@@ -90,7 +89,7 @@ impl Detection {
     /// format, structure, and the ordered column set. Semantic types and
     /// confidence are deliberately excluded: the eval scores structure, and the
     /// two detectors are not expected to agree on leaf types. Exact
-    /// full-structure match, per review-spec finding 2.
+    /// full-structure match.
     pub fn structurally_matches(&self, other: &Detection) -> bool {
         self.format == other.format
             && self.structure == other.structure

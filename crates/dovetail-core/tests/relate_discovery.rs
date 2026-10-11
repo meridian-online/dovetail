@@ -1,4 +1,4 @@
-//! relate discovery tests (spec 2026-06-21-relate-discover-verify-render):
+//! relate discovery tests:
 //! - fixture corpus + expected-outcome manifest
 //! - discover → verify → status, scored against the manifest
 //! - foreignKeys written into Table Schema, still profile-conformant

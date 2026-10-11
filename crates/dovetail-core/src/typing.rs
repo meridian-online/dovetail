@@ -8,7 +8,7 @@
 //! when no model directory is configured. The finetype-guided detector layers
 //! the neural model on top when one is (`detect/finetype_guided.rs`), and both
 //! paths funnel the label back through `finetype_core::frictionless_for` to reach
-//! the same authoritative Frictionless `{type, format}` (choice 0105).
+//! the same authoritative Frictionless `{type, format}`.
 //!
 //! The label is a 3-level taxonomy leaf — `identity.person.email`,
 //! `datetime.timestamp.iso_8601`, `representation.identifier.uuid` — exactly the

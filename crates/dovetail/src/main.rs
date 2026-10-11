@@ -1,4 +1,4 @@
-//! dovetail — thin CLI over dovetail-core (choice 0008).
+//! dovetail — thin CLI over dovetail-core.
 //!
 //! `dovetail survey <paths...>` discovers how to load each file: it detects the
 //! format and row-level structure, reports which fallback-ladder rung it chose

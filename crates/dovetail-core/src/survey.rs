@@ -25,8 +25,8 @@ pub enum SurveyError {
     DataPackage(#[from] DataPackageError),
 }
 
-/// The emitted-output rung (choice 0004). The survey MVP only reaches the SQL
-/// rung; the arcform `.yaml` rung arrives with the jaq-escalation spec.
+/// The emitted-output rung. The survey MVP only reaches the SQL rung; the
+/// arcform `.yaml` rung arrives with jaq escalation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rung {
     Sql,

@@ -1,6 +1,6 @@
 //! Detection eval harness. Runs one or more [`Detector`]s over a fixture
 //! corpus and scores each by row-structure identification hit-rate — an exact
-//! full-structure match against each fixture's manifest (review-spec finding 2).
+//! full-structure match against each fixture's manifest.
 //! The result renders to a markdown table for the reproducible eval record.
 
 use std::path::{Path, PathBuf};
