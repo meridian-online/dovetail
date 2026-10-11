@@ -3,3 +3,6 @@ brief.md
 
 # Rust build artifacts
 /target
+# roborev snapshots
+/.roborev/
+.kata.local.toml
