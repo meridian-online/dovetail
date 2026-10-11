@@ -26,7 +26,7 @@ sha2 = "0.10"
 # artifact. Bundled libduckdb, pinned via Cargo.lock.
 duckdb = { version = "1.4", features = ["bundled"] }
 # Embedded jaq for the transform shim: a pinned in-process jq-compatible engine,
-# so no system jq is needed.
+# so the transform path needs no system jq.
 jaq-core = "3"
 jaq-std = "3"
 jaq-json = "2"
