@@ -3,3 +3,7 @@ brief.md
 
 # Rust build artifacts
 /target
+# roborev snapshots
+/.roborev/
+# Kata per-machine overrides
+.kata.local.toml
