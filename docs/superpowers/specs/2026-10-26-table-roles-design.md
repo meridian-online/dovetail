@@ -20,7 +20,7 @@ Every proposal says why, as every join does today. A role the evidence cannot su
 
 ## Non-goals
 
-- **Writing the Ossie model**, moving to DuckDB 2.0, reading finetype's per-source data packages, and the sample-then-verify passes. Each is separate work; this design produces the result they carry.
+- **Writing the Ossie model**, moving to DuckDB 2.0, reading finetype's per-source data packages, and the sample-then-verify passes. Each is separate work; this design produces the result they carry. For the data packages it defines only the input slot their typing will fill (see *FineType profiles before anything is scored*).
 - **Unpicking nested data into tables** (shredding JSON columns, arrays of objects, structs keyed by values). Agreed as the next piece of work once relational CSVs are right. This design keeps the door open (see *Combined and folded datasets are queries*), but scores only top-level columns of loaded tables.
 - **A learned classifier.** Evaluated after the score-per-role approach has a baseline; the harness is built so one can plug in.
 - **Joins out to reference data the analyst did not bring.**
@@ -48,8 +48,8 @@ It fails, even if it works, if:
   - Field datatypes have no struct or list type; a nested column is `Opaque`, and a field's `expression` can reach inside a struct (`category.name`).
 - **What DuckDB can do is done in DuckDB.** Every measurement is a read query; every combination and fold is SQL.
 - **Determinism.** Same input, byte-identical output: no `HashMap` iteration on an order-bearing path; tables, roles, evidence and proposals in a stable order.
-- **Builds on dovetail as it is on `main`** (DuckDB 1.4 today), with the finetype-guided feature on by default as it already is. Nothing here depends on the DuckDB 2.0 move, and nothing here should make that move harder.
-- **The evidence vocabulary of joins is unchanged**, with one scoring fix. `relate` misses a join whose key is not named like an id: `transactions.sku → products.sku` has the same name on both sides, full value overlap and a unique parent, yet scores 0.44 and is rejected, because only `id`-shaped names count as key-like. Hugh chose to fix that here: an exact-name match to a unique parent with full overlap earns enough key credit to pass `CONF_HIGH`. Every existing `relate` test keeps passing (the coincidental-boolean and bare-`id` cases in particular), and a `sku` case pins the fix. Otherwise `relate`'s edges, scores and statuses stay as they are, and roles read them.
+- **Builds on dovetail as it is on `main`**: the `duckdb` crate resolves in `Cargo.lock` to `libduckdb-sys 1.10504.0`, DuckDB 1.5.4, with the finetype-guided feature on by default as it already is. Nothing here depends on the DuckDB 2.0 move, and nothing here should make that move harder.
+- **The evidence vocabulary of joins is unchanged**, with one scoring fix. `relate` misses a join whose key is not named like an id: `transactions.sku → products.sku` has the same name on both sides, full value overlap and a unique parent, yet scores 0.44 and is rejected, because only `id`-shaped names count as key-like. Hugh chose to fix that here: an exact-name match to a unique parent with full overlap earns enough key credit to pass `CONF_HIGH`, **but only when the parent column looks like a key**: at least 20 distinct values, and FineType does not type it as a person or place name, free text, a date, a number that measures something, or a boolean (an identifier, a code, or untyped all qualify). Without that limit a small unique `stores.city`, or a unique `email` or `name` shared between tables, would become an accepted join and plant false pointers in the role evidence. Every existing `relate` test keeps passing (the coincidental-boolean and bare-`id` cases in particular); a `sku` case pins the fix, and a negative case pins the limit (`customers.city` against a small unique `stores.city` stays rejected). The second change to `relate` is its typing input, under *FineType profiles before anything is scored*. Otherwise `relate`'s edges, scores and statuses stay as they are, and roles read them.
 - **Public repository.** No private planning identifiers or local paths in code, comments, commits or pull request text.
 
 ## Approaches
@@ -68,12 +68,12 @@ Hugh chose B, and asked that a classifier be considered once B has been evaluate
 
 Roles are scored on a full FineType profile of every column, not on `relate`'s model-free floor alone. The floor types only what is provable from a value's shape (emails, ISO timestamps, UUIDs, check-digit identifiers) and declines exactly the columns roles lean on: person and place names, free-text labels and descriptions, dates in non-ISO forms. Those separate a reference from a small entity, and an event from a table with an audit date.
 
-- **One typing per run, read by joins and roles alike**, as `relate` already promises. The `roles` module takes it as an input, `SemanticTypes` or its successor, rather than typing columns itself.
-- **Where the typing comes from:** finetype's per-source data packages when they are given (the path the Ossie writer and Brightfield use, separate work); otherwise the finetype-guided classifier dovetail already carries, run once per column; and the model-free floor only when the classifier is not built in (`--no-default-features`), in which case every role's evidence says so.
+- **One typing per run, read by joins and roles alike**, as `relate` already promises. `relate::run_path` builds it from the best source available and passes the same typing to join discovery and to the `roles` module, which takes it as an input (`SemanticTypes` or its successor) rather than typing columns itself. This changes what joins see when a model is loaded: semantic agreement and identifier key credit can fire on columns the floor declined. Under the floor, joins see exactly what they see today, so `tests/relate_semantic_keys.rs` and the other `relate` tests, which run without a model, keep their statuses; profiled runs are pinned by new tests.
+- **Where the typing comes from**, in order: finetype's per-source data packages when they are given (this design defines the input slot; reading the packages is the separate work above); otherwise the finetype-guided classifier dovetail already carries, run once per column; otherwise the model-free floor. **The floor is used whenever no model is loaded**: the feature is off (`--no-default-features`), `DOVETAIL_FINETYPE_MODEL_DIR` is unset or names a missing directory, or the model fails to load. In every case the run records which typing it used (source, and the finetype commit and model identity when profiled), and every role's evidence names it, so a floor-only call never passes for a profiled one.
 - **DuckDB's own types count too.** A `DATE` or `TIMESTAMP` column is a time column whatever FineType says, so the floor-only path still finds events in typed sources such as Parquet.
 - **The eval runs both ways**, profiled and floor-only, on the same answer keys, so the report shows what FineType's profile is worth to each role.
 
-The corpus is profiled once and cached beside it, so an eval run does not re-run the classifier over every table.
+The corpus is profiled once and cached beside it, so an eval run does not re-run the classifier over every table. The cache records the finetype commit from `Cargo.lock` and the model's identity it was built with, and is rebuilt when either differs; the eval report carries the same stamp, so a finetype bump shows in the committed record.
 
 ### The roles and their evidence
 
@@ -82,9 +82,9 @@ Each role is scored in `[0, 1]` from named evidence items measured on the table 
 | Role | Evidence for | Evidence against | Starting thresholds |
 |---|---|---|---|
 | **Entity**: one row per thing, with a real key | A unique, non-null key (single column, or a pair); another table points at it, or FineType types the key as an identifier; timestamps, if any, are audit-like | A non-audit time column together with a repeating pointer out (that is an event) | Key unique across all rows |
-| **Event**: one row per timestamped occurrence, pointing at an entity | A non-audit date or time column; a pointer out to an entity whose values repeat across rows with different times; more rows than that parent | No time column; nothing it points at | Time column at least 90% filled; at least one parent value repeats |
+| **Event**: one row per timestamped occurrence, pointing at an entity | A non-audit date or time column; a pointer out to an entity whose values repeat across rows with different times; more rows than that parent | No time column; nothing it points at; the snapshot signals (key plus date unique while the date takes few distinct values relative to rows, or a constant as-of date) | Time column at least 90% filled; at least one parent value repeats |
 | **Reference**: a small lookup that only labels another table | Few rows; a key plus label columns only: name-, description- or code-like text that labels the key; something points at it | Any time column; any pointer out; attribute columns that describe a thing (places, dates, amounts), which make it a small entity | At most 1,000 rows and at most 4 columns besides the key |
-| **Bridge**: two pointers and little else, a many-to-many link | Two or more pointers out; pointers are most of its columns; the pointer tuple is unique | Something points at it | Pointers at least half the columns |
+| **Bridge**: two pointers and little else, a many-to-many link | Two or more pointers out; pointers are most of its columns; the pointer tuple is unique | Something points at it; a non-audit time column (that is an event with several pointers) | Pointers at least half the columns |
 | **Snapshot**: an entity's state as of dates | A key that repeats, while key plus a date column is unique, and the date takes few distinct values relative to rows; or the one-date case: keyed by an entity's key (a unique pointer to it) with an as-of date that is constant across rows | A date that varies per row (that is an event) | Distinct dates at most 1% of rows |
 | **Unclear** | — | — | Winner under 0.5, or within 0.15 of the runner-up |
 
@@ -122,9 +122,9 @@ The key decides what kind of combination it is:
 | **Snapshot** | Key values largely overlap (the same customers in 2023 and 2024) | Union with the distinguishing token as a column; key is the entity key plus that column; role snapshot |
 | **Duplicate** | Identical rows | Keep one; the others are named as duplicates |
 
-The overlap threshold between partition and snapshot is the builder's, tuned on the corpus. The token column's name and type come from what the token is (a year or a date is typed through FineType; otherwise it is text named after what varies, e.g. `region`).
+The checks run in that table's reverse order: **duplicate first** (identical rows, so identical copies are kept once rather than unioned as a snapshot with a made-up token column), then the key-overlap test that separates snapshot from partition. The overlap threshold between partition and snapshot is the builder's, tuned on the corpus. The token column's name and type come from what the token is (a year or a date is typed through FineType; otherwise it is text named after what varies, e.g. `region`).
 
-**Combinations come first, roles second.** The `roles` module finds combinations before it scores any role, then scores each combined dataset as one table, measured through a temporary view over its `UNION ALL BY NAME` query (a read-only connection still allows temporary views; if it does not, the measurements run over the query as a subquery). Edges that point at a part are re-attributed to the combined dataset, and edges between the parts of one combination are dropped as evidence. Answer keys label the combined dataset, and list its parts.
+**Combinations come first, roles second.** The `roles` module finds combinations before it scores any role, then scores each combined dataset as one table, measured through a temporary view over its `UNION ALL BY NAME` query (a read-only connection still allows temporary views; if it does not, the measurements run over the query as a subquery). **Joins are discovered again against the combined dataset**, not carried over from its parts: an edge checked against one part is the wrong measurement (`transactions.customer_id` against `customers_2023` alone is half orphans and is rejected), so after combinations are formed, `relate`'s discovery and verification run over the combined views in place of their parts. Edges between the parts of one combination are not candidates. For a **snapshot** combination the entity key is no longer unique, so a child table that carries that key has no valid Ossie relationship to it (`to` must be the one side): dovetail proposes no relationship, and records on both tables that the child carries the snapshot's entity key, with that edge's overlap as evidence. Deriving an entity dataset from a snapshot (its distinct keys and latest state) is not in scope. Answer keys label the combined dataset, and list its parts.
 
 ### Combined and folded datasets are queries
 
@@ -144,7 +144,7 @@ In this design only the fold's struct is built. Prefix groups and numbered repea
 
 ### The result in the core library
 
-A new `roles` module in `dovetail-core`, beside `relate`. It takes an open DuckDB connection and the run's edges and semantic types (as `relate::run_path` already computes them, so there is still one typing per run) and returns one deterministic result carrying, at least:
+A new `roles` module in `dovetail-core`, beside `relate`. It takes an open DuckDB connection and the run's edges and its one typing (as `relate::run_path` computes them under *FineType profiles before anything is scored*) and returns one deterministic result carrying, at least:
 
 - per table: the winning role, every role's score, the evidence sentences, the primary key it found, the event time field and any audit time fields;
 - the folds: reference, host, the edge folded along, the struct column's name;
@@ -170,7 +170,7 @@ The corpus has three tiers:
 
 **Labels are reviewed before thresholds are tuned.** The builder drafts the labels for tiers 1 and 2; Hugh reviews the label set (a checkpoint in the plan) before any threshold is tuned against it, so the scorer is not tuned to the builder's own guesses.
 
-**Targets.** Tier 1 must be exact: every role, fold and combination as its answer key says. Tiers 2 and 3 start as a recorded baseline; their targets are set after the first baseline is read, not now.
+**Targets.** Tier 1 must be exact under the profiled typing; its floor-only run is recorded beside it and is not required to be exact. CI runs tier 1 floor-only against the committed record, and also profiled if the builder can fetch finetype's model in CI the way finetype's own tests do; if not, the profiled exact check is a local gate run before a branch is called ready. Exact means every role, fold and combination as its answer key says. Tiers 2 and 3 start as a recorded baseline; their targets are set after the first baseline is read, not now.
 
 ### What Brightfield needs to change
 
