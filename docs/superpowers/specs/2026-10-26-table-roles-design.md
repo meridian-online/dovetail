@@ -46,7 +46,7 @@ It fails, even if it works, if:
   - Fields carry `dimension.is_time`, defaulting to true for `Date`, `Time`, `DateTime`, `DateTimeTz`. It is the standard place to mark an event's time field, and `is_time: false` marks an audit timestamp.
   - A dataset's `source` is a table *or a query*.
   - Field datatypes have no struct or list type; a nested column is `Opaque`, and a field's `expression` can reach inside a struct (`category.name`).
-- **What DuckDB can do is done in DuckDB.** Every measurement is a read query; every combination and fold is SQL.
+- **What DuckDB can do is done in DuckDB.** Measurement and typing run inside DuckDB and write evidence tables; only those evidence rows leave the database, for scoring. Every combination and fold is SQL. See *Where the work runs*.
 - **Determinism.** Same input, byte-identical output: no `HashMap` iteration on an order-bearing path; tables, roles, evidence and proposals in a stable order.
 - **Builds on dovetail as it is on `main`**: the `duckdb` crate resolves in `Cargo.lock` to `libduckdb-sys 1.10504.0`, DuckDB 1.5.4, with the finetype-guided feature on by default as it already is. Nothing here depends on the DuckDB 2.0 move, and nothing here should make that move harder.
 - **The evidence vocabulary of joins is unchanged**, with one scoring fix. `relate` misses a join whose key is not named like an id: `transactions.sku → products.sku` has the same name on both sides, full value overlap and a unique parent, yet scores 0.44 and is rejected, because only `id`-shaped names count as key-like. Hugh chose to fix that here: an exact-name match to a unique parent with full overlap earns enough key credit to pass `CONF_HIGH`, **but only when the parent column looks like a key**: at least 20 distinct values, and FineType does not type it as a person or place name, free text, a date, a number that measures something, or a boolean (an identifier, a code, or untyped all qualify). Without that limit a small unique `stores.city`, or a unique `email` or `name` shared between tables, would become an accepted join and plant false pointers in the role evidence. Every existing `relate` test keeps passing (the coincidental-boolean and bare-`id` cases in particular); a `sku` case pins the fix, and a negative case pins the limit (`customers.city` against a small unique `stores.city` stays rejected). The second change to `relate` is its typing input, under *FineType profiles before anything is scored*. Otherwise `relate`'s edges, scores and statuses stay as they are, and roles read them.
@@ -64,12 +64,29 @@ Hugh chose B, and asked that a classifier be considered once B has been evaluate
 
 ## What was decided
 
+### Where the work runs
+
+FineType's lesson applies: the work is clearer and cleaner inside DuckDB. Hugh chose this shape on 2026-10-26.
+
+1. **Measurement and typing inside DuckDB, as set-based queries that write evidence tables.** dovetail opens an in-memory DuckDB, attaches the analyst's database read-only, and writes its evidence there, so the analyst's file is never written to:
+   - `column_evidence`: one row per column: DuckDB type, fill rate, distinct count and ratio, FineType label and its source, audit-name flag;
+   - `table_evidence`: one row per table, or per combined dataset: rows, the key found, time columns, pointer share, label-column share;
+   - `edge_evidence`: one row per candidate join: overlap, orphans, child and parent distinct counts, parent uniqueness, name and semantic similarity, the score and status `relate` assigns.
+
+   This replaces `relate`'s per-pair loop, about six small queries per candidate, with a handful of set-based queries, and the values no longer leave DuckDB to be typed. The evidence tables are the audit trail: they can be queried, exported and diffed, and a run can write them beside its other artifacts.
+2. **Typing through FineType's DuckDB extension**, not the in-process classifier. finetype builds `crates/finetype-duckdb` as a loadable extension on DuckDB's stable C API (on DuckDB 1.5.3 at finetype's current tag; dovetail builds on 1.5.4). dovetail loads it into its own connection (`LOAD finetype`) and types each column with its `ft_profile` aggregate, which reads the column where it lies. `ft_version()` stamps the run.
+3. **Scoring is a pure Rust function over the evidence rows**: join confidence and status as `relate` computes them today, and each role's score with its evidence sentences. It needs no database, so weights and thresholds are unit-tested directly on hand-built evidence rows.
+
+The same split is what a later dovetail DuckDB extension would wrap: its table functions would run the same evidence queries and the same scoring function, so the extension and the CLI cannot diverge.
+
+**The extension's version must match dovetail's FineType pin.** dovetail pins `finetype-core` to a finetype tag in `Cargo.toml`; the extension it loads must come from that same tag, checked through `ft_version()` at load, and a mismatch is an error, not a warning. How dovetail finds the extension (a path in an environment variable beside `FINETYPE_MODEL_DIR`, which the extension already reads for its model), whether a locally built extension needs `allow_unsigned_extensions`, and whether one built on 1.5.3 loads on 1.5.4 are the builder's to establish first, in the plan's first task, before anything is built on them. If it will not load across that gap, the builder raises it rather than falling back to the in-process classifier.
+
 ### FineType profiles before anything is scored
 
 Roles are scored on a full FineType profile of every column, not on `relate`'s model-free floor alone. The floor types only what is provable from a value's shape (emails, ISO timestamps, UUIDs, check-digit identifiers) and declines exactly the columns roles lean on: person and place names, free-text labels and descriptions, dates in non-ISO forms. Those separate a reference from a small entity, and an event from a table with an audit date.
 
 - **One typing per run, read by joins and roles alike**, as `relate` already promises. `relate::run_path` builds it from the best source available and passes the same typing to join discovery and to the `roles` module, which takes it as an input (`SemanticTypes` or its successor) rather than typing columns itself. This changes what joins see when a model is loaded: semantic agreement and identifier key credit can fire on columns the floor declined. Under the floor, joins see exactly what they see today, so `tests/relate_semantic_keys.rs` and the other `relate` tests, which run without a model, keep their statuses; profiled runs are pinned by new tests.
-- **Where the typing comes from**, in order: finetype's per-source data packages when they are given (this design defines the input slot; reading the packages is the separate work above); otherwise the finetype-guided classifier dovetail already carries, run once per column; otherwise the model-free floor. **The floor is used whenever no model is loaded**: the feature is off (`--no-default-features`), `DOVETAIL_FINETYPE_MODEL_DIR` is unset or names a missing directory, or the model fails to load. In every case the run records which typing it used (source, and the finetype commit and model identity when profiled), and every role's evidence names it, so a floor-only call never passes for a profiled one.
+- **Where the typing comes from**, in order: finetype's per-source data packages when they are given (this design defines the input slot; reading the packages is the separate work above); otherwise FineType's DuckDB extension with its model (*Where the work runs*); otherwise the model-free floor. **The floor is used whenever the profiled typing is unavailable**: the extension is not found, does not match dovetail's FineType pin, or loads without its model. The finetype-guided classifier dovetail carries in-process stays with survey's detector; `relate` and roles no longer use an in-process classifier. In every case the run records which typing it used (source, and the finetype commit and model identity when profiled), and every role's evidence names it, so a floor-only call never passes for a profiled one.
 - **DuckDB's own types count too.** A `DATE` or `TIMESTAMP` column is a time column whatever FineType says, so the floor-only path still finds events in typed sources such as Parquet.
 - **The eval runs both ways**, profiled and floor-only, on the same answer keys, so the report shows what FineType's profile is worth to each role.
 
@@ -144,7 +161,7 @@ In this design only the fold's struct is built. Prefix groups and numbered repea
 
 ### The result in the core library
 
-A new `roles` module in `dovetail-core`, beside `relate`. It takes an open DuckDB connection and the run's edges and its one typing (as `relate::run_path` computes them under *FineType profiles before anything is scored*) and returns one deterministic result carrying, at least:
+A new `roles` module in `dovetail-core`, beside `relate`. It reads the evidence tables (*Where the work runs*) and the run's edges and its one typing (as `relate::run_path` computes them under *FineType profiles before anything is scored*) and returns one deterministic result carrying, at least:
 
 - per table: the winning role, every role's score, the evidence sentences, the primary key it found, the event time field and any audit time fields;
 - the folds: reference, host, the edge folded along, the struct column's name;
