@@ -48,7 +48,7 @@ It fails, even if it works, if:
   - Field datatypes have no struct or list type; a nested column is `Opaque`, and a field's `expression` can reach inside a struct (`category.name`).
 - **What DuckDB can do is done in DuckDB.** Every measurement is a read query; every combination and fold is SQL.
 - **Determinism.** Same input, byte-identical output: no `HashMap` iteration on an order-bearing path; tables, roles, evidence and proposals in a stable order.
-- **Builds on dovetail as it is on `main`** (DuckDB 1.4 today). Nothing here depends on the DuckDB 2.0 move, and nothing here should make that move harder.
+- **Builds on dovetail as it is on `main`** (DuckDB 1.4 today), with the finetype-guided feature on by default as it already is. Nothing here depends on the DuckDB 2.0 move, and nothing here should make that move harder.
 - **The evidence vocabulary of joins is unchanged**, with one scoring fix. `relate` misses a join whose key is not named like an id: `transactions.sku → products.sku` has the same name on both sides, full value overlap and a unique parent, yet scores 0.44 and is rejected, because only `id`-shaped names count as key-like. Hugh chose to fix that here: an exact-name match to a unique parent with full overlap earns enough key credit to pass `CONF_HIGH`. Every existing `relate` test keeps passing (the coincidental-boolean and bare-`id` cases in particular), and a `sku` case pins the fix. Otherwise `relate`'s edges, scores and statuses stay as they are, and roles read them.
 - **Public repository.** No private planning identifiers or local paths in code, comments, commits or pull request text.
 
@@ -63,6 +63,17 @@ It fails, even if it works, if:
 Hugh chose B, and asked that a classifier be considered once B has been evaluated. The harness's scorer trait is what makes that comparison cheap.
 
 ## What was decided
+
+### FineType profiles before anything is scored
+
+Roles are scored on a full FineType profile of every column, not on `relate`'s model-free floor alone. The floor types only what is provable from a value's shape (emails, ISO timestamps, UUIDs, check-digit identifiers) and declines exactly the columns roles lean on: person and place names, free-text labels and descriptions, dates in non-ISO forms. Those separate a reference from a small entity, and an event from a table with an audit date.
+
+- **One typing per run, read by joins and roles alike**, as `relate` already promises. The `roles` module takes it as an input, `SemanticTypes` or its successor, rather than typing columns itself.
+- **Where the typing comes from:** finetype's per-source data packages when they are given (the path the Ossie writer and Brightfield use, separate work); otherwise the finetype-guided classifier dovetail already carries, run once per column; and the model-free floor only when the classifier is not built in (`--no-default-features`), in which case every role's evidence says so.
+- **DuckDB's own types count too.** A `DATE` or `TIMESTAMP` column is a time column whatever FineType says, so the floor-only path still finds events in typed sources such as Parquet.
+- **The eval runs both ways**, profiled and floor-only, on the same answer keys, so the report shows what FineType's profile is worth to each role.
+
+The corpus is profiled once and cached beside it, so an eval run does not re-run the classifier over every table.
 
 ### The roles and their evidence
 
