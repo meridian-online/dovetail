@@ -6,7 +6,9 @@
 
 **Architecture:** An in-memory DuckDB session attaches the analyst's database read-only, types every column through FineType's DuckDB extension, and writes three evidence tables (column, table, edge) with set-based SQL. Pure Rust functions score joins (today's `relate` arithmetic, unchanged) and roles over those evidence rows. Combinations are found first and measured through views; folds are proposed from the role calls. An eval harness scores any `RoleScorer` against committed answer keys.
 
-**Tech Stack:** Rust 1.94 workspace, `duckdb` crate (bundled, DuckDB 1.5.4 via `libduckdb-sys 1.10504.0`), FineType's DuckDB extension and `finetype-core` at tag `v0.6.64`, serde_json.
+**Tech Stack:** Rust 1.94 workspace, `duckdb` crate (bundled, DuckDB 2.0, `=1.20000.0`), FineType's DuckDB community extension and `finetype-core` at the same tag, serde_json.
+
+**Prerequisite:** dovetail's move to DuckDB 2.0, with its FineType pin set to the community extension's version, is separate work and must be merged before Task 1 starts. Check: `grep 'duckdb = ' crates/dovetail-core/Cargo.toml` names `=1.20000.0`.
 
 **Spec:** `docs/superpowers/specs/2026-10-26-table-roles-design.md`
 
@@ -17,7 +19,7 @@
 - "Points at" means an accepted or suggested edge whose parent is unique. Nothing else is role evidence.
 - A reference folds only when exactly one table points at it. The fold is one struct column named after the singularised reference.
 - The analyst's database is attached `READ_ONLY`; every dovetail write goes to the in-memory session.
-- The FineType extension must report the same version as dovetail's `finetype-core` tag (`v0.6.64` after Task 1); a mismatch is an error. When the extension or its model is unavailable, typing falls back to the model-free floor, and the run's `TypingSource` and every role's evidence say so.
+- The FineType extension must report the same version as dovetail's `finetype-core` tag, as set by the DuckDB 2.0 move; a mismatch is an error. When the extension or its model is unavailable, typing falls back to the model-free floor, and the run's `TypingSource` and every role's evidence say so.
 - Determinism: byte-identical output for the same input. `BTreeMap`/sorted `Vec` on every order-bearing path; no `HashMap` iteration.
 - Every SQL identifier is double-quoted through `relate`'s `quote` (made `pub(crate)`).
 - Public repo: no private planning identifiers or local paths in code, comments, commits, branch names or PR text. Corpus data is never committed.
@@ -30,39 +32,35 @@
 2. **Empty tables and all-NULL columns:** no panic, no division by zero; an empty table is `unclear` with the evidence "no rows". Pinned in Tasks 2 and 5.
 3. **No single-column key** (Sakila's `film_actor`, Chinook's `PlaylistTrack`): the key search finds the unique pair, and the table scores as a bridge. Pinned in Task 6.
 4. **Self-references** (Chinook's `Employee.ReportsTo`): `relate` skips same-table pairs by design, so this edge is never found; the table must still score as an entity, not unclear. Pinned in Task 6.
-5. **The extension installed but the wrong version, or without its model:** a version mismatch errors with both versions named; a missing model falls back to the floor and says so. Pinned in Task 1.
+5. **The extension available but the wrong version, or without its model, or not installable offline:** a version mismatch errors with both versions named; a missing model falls back to the floor and says so. Pinned in Task 1.
 
 ---
 
-### Task 1: Prove the FineType extension route, and move the pin to v0.6.64
+### Task 1: Load FineType's community extension at the pinned version
 
 **Files:**
 - Create: `crates/dovetail-core/src/finetype_ext.rs`
-- Modify: `crates/dovetail-core/src/lib.rs` (add `pub mod finetype_ext;`), `Cargo.toml` (both finetype `tag = "v0.6.64"`), `Cargo.lock`
+- Modify: `crates/dovetail-core/src/lib.rs` (add `pub mod finetype_ext;`)
 - Test: `crates/dovetail-core/tests/finetype_extension.rs`
 
 **Interfaces:**
 - Produces:
 
 ```rust
-pub const FINETYPE_TAG: &str = "v0.6.64";          // must equal Cargo.toml's tag; a test reads Cargo.toml and checks
+pub fn finetype_tag() -> &'static str;              // the finetype tag Cargo.toml pins, embedded at build time (build.rs reads the root Cargo.toml)
 pub enum TypingSource { Profiled { finetype_version: String, model: String }, Floor { reason: String } }
 pub enum ExtensionError { VersionMismatch { expected: String, found: String }, Duckdb(duckdb::Error) }
 pub fn load(conn: &duckdb::Connection) -> Result<TypingSource, ExtensionError>;
 ```
 
-`load` tries `INSTALL finetype FROM community; LOAD finetype;`, then, if that fails, a local build named by `DOVETAIL_FINETYPE_EXTENSION` (a path; `SET allow_unsigned_extensions = true` only on that branch). It checks `ft_version()` against `FINETYPE_TAG` (strip a leading `v` on either side), then confirms the model loads by profiling a one-row literal. No extension found → `Ok(Floor { reason: "finetype extension not installed" })`; model missing → `Ok(Floor { reason: "finetype model not found" })`; version differs → `Err(VersionMismatch)`. `model` is whatever identity the extension reports for its model (read finetype's `crates/finetype-duckdb/src/lib.rs` for what `ft_version` and `ft_profile` return; record their exact output shapes in a doc comment).
+`load` runs `INSTALL finetype FROM community; LOAD finetype;`, checks `ft_version()` against `finetype_tag()` (strip a leading `v` on either side), then confirms the model loads by profiling a one-row literal. Install or load fails (offline, not published) → `Ok(Floor { reason: "finetype extension not available: <error>" })`; model missing → `Ok(Floor { reason: "finetype model not found" })`; version differs → `Err(VersionMismatch)`. `model` is whatever identity the extension reports for its model (read finetype's `crates/finetype-duckdb/src/lib.rs` for what `ft_version` and `ft_profile` return, and record their exact output shapes in a doc comment).
 
-- [ ] **Step 1: Establish the route before writing code.** On a scratch connection from the `duckdb` crate at its locked version (a throwaway `examples/` binary or a `#[test] #[ignore]`), run `INSTALL finetype FROM community; LOAD finetype; SELECT ft_version();`. Record which of these holds in the task's commit message:
-  - the community build installs on 1.5.4 and reports 0.6.64: use it;
-  - it does not, but a local build of finetype at `v0.6.64` (`cargo build -p finetype_duckdb --release` in a finetype checkout, then its metadata step) loads with `allow_unsigned_extensions`: use that, through `DOVETAIL_FINETYPE_EXTENSION`;
-  - neither loads on 1.5.4: **stop and raise it** (flag the Kata issue `needs-human`). Do not fall back to the in-process classifier.
-- [ ] **Step 2: Move the pin.** Set both finetype `tag`s in `Cargo.toml` to `v0.6.64`; run `cargo metadata --format-version 1 >/dev/null`; check `awk '/^name = "finetype-core"/{f=1} f && /^source = /{print; exit}' Cargo.lock` names `v0.6.64`.
-- [ ] **Step 3: Write the failing tests** in `tests/finetype_extension.rs`: `tag_matches_cargo_toml` (reads the root `Cargo.toml`, asserts both finetype tags equal `FINETYPE_TAG`); `loads_and_reports_pinned_version` (skips if unavailable; `load` returns `Profiled` whose `finetype_version` equals `FINETYPE_TAG` without the `v`); `missing_model_falls_back_to_floor` (with `FINETYPE_MODEL_DIR` pointed at an empty temp dir: `Floor` whose reason names the model); `mismatch_is_an_error` (unit test inside `finetype_ext.rs` on the version-compare helper `fn check_version(expected: &str, found: &str) -> Result<(), ExtensionError>`: `"v0.6.64"` vs `"0.6.64"` ok, vs `"0.6.60"` → `VersionMismatch` naming both).
-- [ ] **Step 4: Run** `cargo test -p dovetail-core --test finetype_extension`. Expected: FAIL, module missing.
-- [ ] **Step 5: Implement** `finetype_ext.rs` as the Interfaces block says.
-- [ ] **Step 6: Run** the same command, then `cargo test --workspace` (the pin bump must not break survey or relate). Expected: PASS; extension tests either pass or print their skip reason.
-- [ ] **Step 7: Commit** `Cargo.toml`, `Cargo.lock` and the module together: "Load FineType's DuckDB extension at the pinned tag, falling back to the floor".
+- [ ] **Step 1: Check the prerequisite and the route.** Confirm the DuckDB 2.0 move is merged (see *Prerequisite*). On a connection from the bundled crate, `INSTALL finetype FROM community; LOAD finetype; SELECT ft_version();` must report the pinned version. If the community build for that version is not published yet, **stop and raise it** (flag the Kata issue `needs-human`); do not fall back to a local build or the in-process classifier.
+- [ ] **Step 2: Write the failing tests** in `tests/finetype_extension.rs`: `tag_matches_cargo_toml` (reads the root `Cargo.toml`, asserts both finetype tags equal `finetype_tag()`); `loads_and_reports_pinned_version` (skips if unavailable; `load` returns `Profiled` whose `finetype_version` equals the tag without the `v`); `missing_model_falls_back_to_floor` (with `FINETYPE_MODEL_DIR` pointed at an empty temp dir: `Floor` whose reason names the model); and a unit test in `finetype_ext.rs` on `fn check_version(expected: &str, found: &str) -> Result<(), ExtensionError>`: `"v0.6.64"` vs `"0.6.64"` ok, vs `"0.6.60"` → `VersionMismatch` naming both.
+- [ ] **Step 3: Run** `cargo test -p dovetail-core --test finetype_extension`. Expected: FAIL, module missing.
+- [ ] **Step 4: Implement** `finetype_ext.rs` as the Interfaces block says.
+- [ ] **Step 5: Run** the same command, then `cargo test --workspace`. Expected: PASS; extension tests pass or print their skip reason.
+- [ ] **Step 6: Commit**: "Load FineType's community extension at the pinned version, falling back to the floor".
 
 ### Task 2: The evidence session and `column_evidence`
 
