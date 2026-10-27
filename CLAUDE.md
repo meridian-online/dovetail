@@ -54,8 +54,9 @@ Pure Rust, mirroring finetype: a reusable core library under a thin CLI.
 - `crates/dovetail` (bin) — thin CLI over the core.
 
 Bundled transform crates: `jaq` (JSON/YAML/TOML/XML), `calamine` (Excel),
-`calcard` (.ics/.vcf). DuckDB via the `duckdb` crate, bundled and pinned by
-`Cargo.lock`.
+`calcard` (.ics/.vcf).
+
+DuckDB is 2.0.0, through the `duckdb` crate at `=1.20000.0` with `bundled`, the same spec as Brightfield's. libduckdb-sys 1.20000.0 compiles DuckDB 2.0.0 as `v2.0.0-dev88614` (duckdb/duckdb-rs#917), and that build fetches extensions from a path nothing is published under, so `.cargo/config.toml` sets `CXXFLAGS` to name the build `v2.0.0`. Cargo applies it only to builds run inside this workspace; a `CXXFLAGS` set in the shell replaces it, and `the_bundled_duckdb_is_2_0_0` in `tests/duckdb_engine.rs` fails when that happens. Remove the entry once a libduckdb-sys release carries the fix. The dev profile turns debug info off for `libduckdb-sys`, because from 1.20000.0 it switches on DuckDB's `DEBUG` verification paths.
 
 ## Build and test
 
@@ -93,6 +94,8 @@ nothing here. Moving to a new finetype version is a source edit: change the
 `tag` on both crates in the root `Cargo.toml`, re-resolve without building
 (`cargo metadata --format-version 1 >/dev/null`), and commit `Cargo.toml` and
 `Cargo.lock` together with the work that triggered it.
+
+The tag is the FineType release whose attached DuckDB extension dovetail loads, so survey's in-process classifier and the extension type a column the same way. It moves together with Brightfield's `FINETYPE_TAG` (`packaging/finetype-pin.env`), whose gate refuses a mismatch once it links dovetail. The release's extension loads only under the file name `finetype.duckdb_extension`, since DuckDB derives its entry point from the file name. To check a release file against the pin, run `DOVETAIL_FINETYPE_EXTENSION=<file> cargo test -p dovetail-core --no-default-features --test duckdb_engine`. A model-backed eval (`DOVETAIL_FINETYPE_MODEL_DIR`) needs a model directory holding `validation_snapshot.json`; without it the model reads the current published validation rules rather than the frozen ones, and its results move for a reason that is not the pin. FineType's `download-model.sh` may not fetch it, so copy it from the tag's `models/<model>/` when it is missing.
 
 ## Style — how to write for the author
 
