@@ -221,6 +221,8 @@ fn path_with_quote_attaches() {
     assert_eq!(find(&cols, "t", "x").rows, 1);
 }
 
+// Guards that the profile's output is stable run to run; it passes with or
+// without `SET threads = 1`, so it does not prove that setting is needed.
 #[test]
 fn profile_is_deterministic_across_row_groups() {
     // More rows than one DuckDB row group (122,880), so a parallel scan would

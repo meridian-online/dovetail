@@ -1,9 +1,12 @@
 //! relate — discover how DuckDB tables relate.
 //!
 //! relate READS an existing DuckDB (the analyst loaded it via survey's emitted
-//! `.sql`) and issues only read queries — schema introspection,
+//! `.sql`) and issues only read queries against it — schema introspection,
 //! value-overlap/cardinality evidence, and referential-integrity verification
-//! (in-process discovery reads, never pipeline execution). It scores
+//! (in-process discovery reads, never pipeline execution). A run over a path
+//! attaches the database read-only to an [`evidence::Session`], which keeps the
+//! measurements in its own memory; the bare-connection entry points write
+//! nothing at all. It scores
 //! each candidate foreign-key edge, VERIFIES it against the data, and assigns a
 //! status: a verified high-confidence edge auto-accepts with no analyst action;
 //! a coincidence or a broken reference is rejected; a plausible-but-unprovable
@@ -13,6 +16,8 @@ use std::collections::HashMap;
 
 use duckdb::Connection;
 
+use crate::evidence::{self, ColumnEvidence, EdgeEvidence, EvidenceError, ListedColumn, Session};
+use crate::finetype_ext::TypingRequest;
 use crate::identifiers;
 
 /// A column reference (table + column).
@@ -165,13 +170,14 @@ impl SemanticTypes {
 /// Type every column in the database with finetype, model-free. This is the pass
 /// that runs FIRST — finetype types the nodes, then relate discovers the edges.
 pub fn semantic_types(conn: &Connection) -> duckdb::Result<SemanticTypes> {
-    let columns = read_columns(conn)?;
-    let mut by_column = HashMap::with_capacity(columns.len());
-    for c in &columns {
-        let sample = sample_column_values(conn, &c.col.table, &c.col.column, FIELD_SAMPLE_N)?;
-        let leaf = crate::typing::deterministic_semantic_type(&sample);
-        by_column.insert((c.col.table.clone(), c.col.column.clone()), leaf);
-    }
+    let columns = bare_columns(conn)?;
+    let labels =
+        evidence::label_tables(conn, "", &columns, evidence::floor_labels).map_err(into_duckdb)?;
+    let by_column = columns
+        .into_iter()
+        .zip(labels)
+        .map(|(c, leaf)| ((c.table, c.column), leaf))
+        .collect();
     Ok(SemanticTypes { by_column })
 }
 
@@ -189,45 +195,11 @@ pub fn discover(conn: &Connection) -> duckdb::Result<Vec<Edge>> {
 /// Discover, verify and score all candidate FK edges against an already-computed
 /// semantic typing of the database.
 pub fn discover_with_types(conn: &Connection, types: &SemanticTypes) -> duckdb::Result<Vec<Edge>> {
-    let columns = read_columns(conn)?;
-    let mut edges = Vec::new();
-
-    for child in &columns {
-        for parent in &columns {
-            if child.col.table == parent.col.table {
-                continue;
-            }
-            if !types_compatible(&child.ty, &parent.ty) {
-                continue;
-            }
-            let child_leaf = types.get(&child.col.table, &child.col.column);
-            let parent_leaf = types.get(&parent.col.table, &parent.col.column);
-
-            // Prune: a pair must be at least plausibly related before the
-            // expensive queries run. Name spelling was the only way past this
-            // gate, so a pair whose names share nothing never reached scoring at
-            // all — it was dropped here, not out-scored later. Shared identifier
-            // typing is a second way through, so a pair whose names share nothing
-            // and whose types share everything is still measured.
-            let name_similarity = name_similarity(&child.col, &parent.col);
-            let semantic_similarity = semantic_similarity(&child.col, child_leaf, parent_leaf);
-            if name_similarity.max(semantic_similarity) < 0.3 {
-                continue;
-            }
-            if let Some(edge) = score_edge(
-                conn,
-                &child.col,
-                &parent.col,
-                name_similarity,
-                semantic_similarity,
-                child_leaf,
-                parent_leaf,
-            )? {
-                edges.push(edge);
-            }
-        }
-    }
-    Ok(edges)
+    let cols = bare_column_evidence(conn, types)?;
+    let tables = table_names(&cols);
+    let relation = |table: &str| quote(table);
+    let measured = evidence::measure_edges(conn, &relation, &cols, &tables).map_err(into_duckdb)?;
+    Ok(measured.iter().map(edge_from_evidence).collect())
 }
 
 /// Open a DuckDB at `path` (read-only discovery) and discover its edges. Keeps
@@ -244,16 +216,55 @@ pub struct RelateRun {
     pub descriptor: serde_json::Value,
 }
 
-/// Open a DuckDB, discover edges, and assemble the descriptor — the one call the
+/// Attach the DuckDB at `path` read-only, type its columns with the best typing
+/// available, discover edges, and assemble the descriptor — the one call the
 /// CLI needs.
-pub fn run_path(path: &str) -> duckdb::Result<RelateRun> {
-    let conn = Connection::open(path)?;
-    // finetype types the nodes, THEN relate discovers the edges — one typing,
-    // read by both halves.
-    let types = semantic_types(&conn)?;
-    let edges = discover_with_types(&conn, &types)?;
-    let descriptor = build_descriptor_with_types(&conn, &edges, path, &types)?;
+pub fn run_path(path: &str) -> Result<RelateRun, EvidenceError> {
+    let s = Session::attach(std::path::Path::new(path), TypingRequest::Best)?;
+    run_session(&s)
+}
+
+/// Measure and type the session's columns, then [`run_with`] over all its
+/// tables.
+pub fn run_session(s: &Session) -> Result<RelateRun, EvidenceError> {
+    let cols = evidence::column_evidence(s)?;
+    let tables = table_names(&cols);
+    run_with(s, &cols, &tables)
+}
+
+/// Discover the edges among `tables` and assemble their descriptor, from column
+/// evidence the caller already has — finetype types the nodes, THEN relate
+/// discovers the edges, and both halves read that one typing.
+pub fn run_with(
+    s: &Session,
+    cols: &[ColumnEvidence],
+    tables: &[String],
+) -> Result<RelateRun, EvidenceError> {
+    let measured = evidence::edge_evidence(s, cols, tables)?;
+    let edges: Vec<Edge> = measured.iter().map(edge_from_evidence).collect();
+    let described: Vec<DescribedColumn> = cols
+        .iter()
+        .filter(|c| tables.contains(&c.table))
+        .map(|c| DescribedColumn {
+            table: &c.table,
+            column: &c.column,
+            duckdb_type: &c.duckdb_type,
+            label: c.label.as_deref(),
+        })
+        .collect();
+    let descriptor = descriptor(&described, &edges, s.source());
     Ok(RelateRun { edges, descriptor })
+}
+
+/// Each table's name once, in the order its columns first appear.
+fn table_names(cols: &[ColumnEvidence]) -> Vec<String> {
+    let mut tables: Vec<String> = Vec::new();
+    for c in cols {
+        if !tables.contains(&c.table) {
+            tables.push(c.table.clone());
+        }
+    }
+    tables
 }
 
 /// Accepted edges only — what compiles to constraint DDL.
@@ -311,28 +322,49 @@ pub fn build_descriptor_with_types(
     source: &str,
     types: &SemanticTypes,
 ) -> duckdb::Result<serde_json::Value> {
+    let columns = bare_columns(conn)?;
+    let described: Vec<DescribedColumn> = columns
+        .iter()
+        .map(|c| DescribedColumn {
+            table: &c.table,
+            column: &c.column,
+            duckdb_type: &c.duckdb_type,
+            label: types.get(&c.table, &c.column),
+        })
+        .collect();
+    Ok(descriptor(&described, edges, source))
+}
+
+/// A column as the descriptor describes it: its SQL type and the run's label.
+struct DescribedColumn<'a> {
+    table: &'a str,
+    column: &'a str,
+    duckdb_type: &'a str,
+    label: Option<&'a str>,
+}
+
+fn descriptor(columns: &[DescribedColumn], edges: &[Edge], source: &str) -> serde_json::Value {
     use serde_json::json;
-    let columns = read_columns(conn)?;
 
     // Tables in first-seen order.
-    let mut table_order: Vec<String> = Vec::new();
-    for c in &columns {
-        if !table_order.contains(&c.col.table) {
-            table_order.push(c.col.table.clone());
+    let mut table_order: Vec<&str> = Vec::new();
+    for c in columns {
+        if !table_order.contains(&c.table) {
+            table_order.push(c.table);
         }
     }
 
     let mut resources: Vec<serde_json::Value> = Vec::with_capacity(table_order.len());
-    for table in &table_order {
+    for &table in &table_order {
         let mut fields: Vec<serde_json::Value> = Vec::new();
-        for c in columns.iter().filter(|c| &c.col.table == table) {
-            let semantic = types.get(&c.col.table, &c.col.column).map(str::to_string);
-            let field = typed_field(&c.col.column, &c.ty, semantic);
+        for c in columns.iter().filter(|c| c.table == table) {
+            let semantic = c.label.map(str::to_string);
+            let field = typed_field(c.column, c.duckdb_type, semantic);
             fields.push(serde_json::to_value(&field).expect("Field serializes"));
         }
         let fks: Vec<serde_json::Value> = edges
             .iter()
-            .filter(|e| e.status != EdgeStatus::Rejected && &e.child.table == table)
+            .filter(|e| e.status != EdgeStatus::Rejected && e.child.table == table)
             .map(|e| serde_json::to_value(e.to_foreign_key()).unwrap())
             .collect();
         let mut schema = json!({ "fields": fields });
@@ -354,10 +386,10 @@ pub fn build_descriptor_with_types(
         }));
     }
 
-    Ok(json!({
+    json!({
         "$schema": "https://datapackage.org/profiles/2.0/datapackage.json",
         "resources": resources,
-    }))
+    })
 }
 
 /// Build a typed Table Schema field for a DuckDB column from the run's single
@@ -395,25 +427,6 @@ fn typed_field(column: &str, sql_ty: &str, semantic: Option<String>) -> crate::d
     }
 }
 
-/// Sample up to `n` non-null values from a column, rendered as text (the form
-/// finetype's typer reads). CAST-to-VARCHAR keeps every DuckDB scalar type
-/// legible to the value-only classifier.
-fn sample_column_values(
-    conn: &Connection,
-    table: &str,
-    column: &str,
-    n: usize,
-) -> duckdb::Result<Vec<String>> {
-    let sql = format!(
-        "SELECT CAST({col} AS VARCHAR) FROM {tbl} WHERE {col} IS NOT NULL LIMIT {n}",
-        col = quote(column),
-        tbl = quote(table),
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
-    rows.collect()
-}
-
 /// Map a DuckDB column type to a coarse Frictionless field type — the fallback
 /// when finetype cannot conclusively type a column from its values.
 fn frictionless_type(ty: &str) -> &'static str {
@@ -427,33 +440,46 @@ fn frictionless_type(ty: &str) -> &'static str {
 
 // --- Schema read -------------------------------------------------------------
 
-struct TypedColumn {
-    col: ColumnRef,
-    ty: String,
+/// The columns of a bare connection's own catalog. Reads only.
+fn bare_columns(conn: &Connection) -> duckdb::Result<Vec<ListedColumn>> {
+    let catalog: String = conn.query_row("SELECT current_database()", [], |r| r.get(0))?;
+    evidence::list_columns(conn, &catalog).map_err(into_duckdb)
 }
 
-fn read_columns(conn: &Connection) -> duckdb::Result<Vec<TypedColumn>> {
-    let mut stmt = conn.prepare(
-        "SELECT table_name, column_name, data_type
-         FROM information_schema.columns
-         WHERE table_schema = 'main'
-         ORDER BY table_name, ordinal_position",
-    )?;
-    let rows = stmt.query_map([], |r| {
-        Ok(TypedColumn {
-            col: ColumnRef {
-                table: r.get(0)?,
-                column: r.get(1)?,
-            },
-            ty: r.get(2)?,
-        })
-    })?;
-    rows.collect()
+/// Column evidence for a bare connection, labelled by `types` rather than any
+/// typing of its own, so a caller's typing is the one scored. Reads only.
+fn bare_column_evidence(
+    conn: &Connection,
+    types: &SemanticTypes,
+) -> duckdb::Result<Vec<ColumnEvidence>> {
+    let columns = bare_columns(conn)?;
+    let mut cols = Vec::with_capacity(columns.len());
+    for (table, group) in evidence::group_by_table(&columns) {
+        let names: Vec<&str> = group.iter().map(|c| c.column.as_str()).collect();
+        let counts = evidence::measure_counts(conn, "", table, &names).map_err(into_duckdb)?;
+        for (c, (rows, non_null, distinct)) in group.iter().zip(counts) {
+            cols.push(ColumnEvidence {
+                table: c.table.clone(),
+                column: c.column.clone(),
+                duckdb_type: c.duckdb_type.clone(),
+                rows,
+                non_null,
+                distinct,
+                label: types.get(&c.table, &c.column).map(str::to_string),
+                audit_name: evidence::is_audit_name(&c.column),
+            });
+        }
+    }
+    Ok(cols)
 }
 
-/// Coarse type-family compatibility — candidates must share a family.
-fn types_compatible(a: &str, b: &str) -> bool {
-    type_family(a) == type_family(b)
+/// The bare-connection entry points keep `duckdb::Result`; the measurements
+/// they call raise nothing but DuckDB's own errors.
+fn into_duckdb(e: EvidenceError) -> duckdb::Error {
+    match e {
+        EvidenceError::Duckdb(e) => e,
+        EvidenceError::Session(message) => duckdb::Error::ToSqlConversionFailure(message.into()),
+    }
 }
 
 pub(crate) fn type_family(ty: &str) -> &'static str {
@@ -477,65 +503,24 @@ pub(crate) fn type_family(ty: &str) -> &'static str {
 
 // --- Evidence + verification + scoring ---------------------------------------
 
-#[allow(clippy::too_many_arguments)]
-fn score_edge(
-    conn: &Connection,
-    child: &ColumnRef,
-    parent: &ColumnRef,
-    name_similarity: f64,
-    semantic_similarity: f64,
-    child_leaf: Option<&str>,
-    parent_leaf: Option<&str>,
-) -> duckdb::Result<Option<Edge>> {
-    let ct = quote(&child.table);
-    let cc = quote(&child.column);
-    let pt = quote(&parent.table);
-    let pc = quote(&parent.column);
-
-    let child_total: i64 = conn.query_row(
-        &format!("SELECT count(*) FROM {ct} WHERE {cc} IS NOT NULL"),
-        [],
-        |r| r.get(0),
-    )?;
-    if child_total == 0 {
-        return Ok(None);
-    }
-    let child_distinct: i64 = conn.query_row(
-        &format!("SELECT count(DISTINCT {cc}) FROM {ct} WHERE {cc} IS NOT NULL"),
-        [],
-        |r| r.get(0),
-    )?;
-    let parent_total: i64 = conn.query_row(
-        &format!("SELECT count(*) FROM {pt} WHERE {pc} IS NOT NULL"),
-        [],
-        |r| r.get(0),
-    )?;
-    let parent_distinct: i64 = conn.query_row(
-        &format!("SELECT count(DISTINCT {pc}) FROM {pt} WHERE {pc} IS NOT NULL"),
-        [],
-        |r| r.get(0),
-    )?;
-
-    // Distinct child values present in the parent.
-    let overlap_distinct: i64 = conn.query_row(
-        &format!(
-            "SELECT count(*) FROM (SELECT DISTINCT {cc} AS v FROM {ct} WHERE {cc} IS NOT NULL) c
-             WHERE c.v IN (SELECT {pc} FROM {pt} WHERE {pc} IS NOT NULL)"
-        ),
-        [],
-        |r| r.get(0),
-    )?;
-
-    // Orphan rows: child non-null values absent from the parent.
-    let orphan_count: i64 = conn.query_row(
-        &format!(
-            "SELECT count(*) FROM {ct}
-             WHERE {cc} IS NOT NULL
-               AND {cc} NOT IN (SELECT {pc} FROM {pt} WHERE {pc} IS NOT NULL)"
-        ),
-        [],
-        |r| r.get(0),
-    )?;
+/// Score a measured candidate: value overlap, the parent's key-likeness and
+/// the pair's similarity make the confidence, then verification and any
+/// semantic disagreement set the status. Pure: the evidence row is all it reads.
+pub fn edge_from_evidence(e: &EdgeEvidence) -> Edge {
+    let EdgeEvidence {
+        child_total,
+        child_distinct,
+        parent_total,
+        parent_distinct,
+        overlap_distinct,
+        orphan_count,
+        name_similarity,
+        semantic_similarity,
+        ..
+    } = *e;
+    let child_leaf = e.child_label.as_deref();
+    let parent_leaf = e.parent_label.as_deref();
+    let parent = &e.parent;
 
     let value_overlap = if child_distinct == 0 {
         0.0
@@ -581,15 +566,15 @@ fn score_edge(
     let (status, reason) = assign_status(&verification, confidence);
     let (status, reason) = demote_on_mismatch(status, reason, &evidence);
 
-    Ok(Some(Edge {
-        child: child.clone(),
+    Edge {
+        child: e.child.clone(),
         parent: parent.clone(),
         evidence,
         verification,
         confidence,
         status,
         reason,
-    }))
+    }
 }
 
 /// A semantic disagreement DEMOTES an accepted edge to `Suggested`. It never
@@ -722,7 +707,7 @@ fn key_signal(col: &str, leaf: Option<&str>) -> f64 {
 /// primary key. That is a fact about the column's ROLE, which typing cannot
 /// establish — two tables keyed by UUID both have `id` columns, and neither
 /// references the other.
-fn semantic_similarity(
+pub(crate) fn semantic_similarity(
     child: &ColumnRef,
     child_leaf: Option<&str>,
     parent_leaf: Option<&str>,
@@ -750,7 +735,7 @@ fn semantic_mismatch(child_leaf: Option<&str>, parent_leaf: Option<&str>) -> boo
 
 /// Name-similarity signal for a candidate (child → parent), `[0,1]`. Rewards the
 /// FK convention `child.<parent_singular>_id` and exact column-name equality.
-fn name_similarity(child: &ColumnRef, parent: &ColumnRef) -> f64 {
+pub(crate) fn name_similarity(child: &ColumnRef, parent: &ColumnRef) -> f64 {
     let cc = child.column.to_ascii_lowercase();
     // A child column named bare `id` is the table's OWN primary key, not a
     // foreign-key reference. Excluding it stops coincidental surrogate-id overlap
