@@ -169,10 +169,19 @@ echo "   $(find "${WORK}/model" -type f | wc -l | tr -d ' ') model files" >&2
 # Assembled only once every byte has been checked.
 mkdir -p "$DEST"
 DEST=$(cd "$DEST" && pwd)
-rm -rf "${DEST:?}/model"
-cp "${WORK}/${EXT_ASSET}" "${DEST}/finetype.duckdb_extension"
+# Each file is written beside its target and renamed over it, so a re-run
+# replaces the file (a new inode) rather than rewriting it in place: rewriting a
+# library some process has mapped can crash that process, and on macOS leaves
+# a stale code signature that gets the next LOAD killed. The model is removed
+# and copied afresh, which gives new inodes too.
+cp "${WORK}/${EXT_ASSET}" "${DEST}/.finetype.duckdb_extension.partial"
+mv -f "${DEST}/.finetype.duckdb_extension.partial" "${DEST}/finetype.duckdb_extension"
 printf '%s  %s\n' "$(digest_of "${WORK}/${EXT_ASSET}")" "${RELEASE}/${EXT_ASSET}" \
-  > "${DEST}/finetype.duckdb_extension.source"
+  > "${DEST}/.finetype.duckdb_extension.source.partial"
+mv -f "${DEST}/.finetype.duckdb_extension.source.partial" "${DEST}/finetype.duckdb_extension.source"
+# Earlier versions of this script kept the release asset's own name.
+rm -f "${DEST}"/finetype-*-*.duckdb_extension
+rm -rf "${DEST:?}/model"
 cp -R "${WORK}/model" "${DEST}/model"
 echo "   ${EXT_ASSET} -> ${DEST}/finetype.duckdb_extension" >&2
 
