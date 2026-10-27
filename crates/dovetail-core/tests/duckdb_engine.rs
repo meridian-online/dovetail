@@ -12,6 +12,6 @@ fn the_bundled_duckdb_is_2_0_0() {
     assert_eq!(
         version, "v2.0.0",
         "the bundled DuckDB reports {version}; .cargo/config.toml names the build v2.0.0, \
-         and a CXXFLAGS, CXXFLAGS_<target> or TARGET_CXXFLAGS set in the shell overrides it"
+         and a CXXFLAGS set in the shell replaces it"
     );
 }

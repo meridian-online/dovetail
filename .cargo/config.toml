@@ -3,7 +3,7 @@
 # is published under. Naming the version restores v2.0.0. Remove this entry
 # once a libduckdb-sys release carries the fix. Cargo reads this file only for
 # builds run inside this workspace, so `cargo install --git` and crates that
-# depend on dovetail-core do not get it. A CXXFLAGS, CXXFLAGS_<target> or
-# TARGET_CXXFLAGS set in the shell overrides it.
+# depend on dovetail-core do not get it. A CXXFLAGS set in the shell replaces
+# it; the target-specific CXXFLAGS variables add to it instead.
 [env]
 CXXFLAGS = '-DDUCKDB_VERSION="v2.0.0"'
