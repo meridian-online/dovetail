@@ -1,7 +1,9 @@
 # libduckdb-sys 1.20000.0 compiles DuckDB 2.0.0 as v2.0.0-dev88614
 # (duckdb/duckdb-rs#917), and that build fetches extensions from a path nothing
 # is published under. Naming the version restores v2.0.0. Remove this entry
-# once a libduckdb-sys release carries the fix. A CXXFLAGS set in the shell
-# overrides this one.
+# once a libduckdb-sys release carries the fix. Cargo reads this file only for
+# builds run inside this workspace, so `cargo install --git` and crates that
+# depend on dovetail-core do not get it. A CXXFLAGS, CXXFLAGS_<target> or
+# TARGET_CXXFLAGS set in the shell overrides it.
 [env]
 CXXFLAGS = '-DDUCKDB_VERSION="v2.0.0"'
