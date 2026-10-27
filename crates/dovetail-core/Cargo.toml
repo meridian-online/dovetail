@@ -23,8 +23,9 @@ sha2 = "0.10"
 # relate reads and queries DuckDB in-process for discovery:
 # schema introspection, value-overlap/cardinality evidence, referential-integrity
 # verification. Read-only discovery — execution is always an emitted
-# artifact. Bundled libduckdb, pinned via Cargo.lock.
-duckdb = { version = "1.4", features = ["bundled"] }
+# artifact. Bundled libduckdb: DuckDB 2.0.0, the same spec as Brightfield's,
+# because FineType's community extension is only current on 2.0.
+duckdb = { version = "=1.20000.0", features = ["bundled"] }
 # Embedded jaq for the transform shim: a pinned in-process jq-compatible engine,
 # so the transform path needs no system jq.
 jaq-core = "3"
