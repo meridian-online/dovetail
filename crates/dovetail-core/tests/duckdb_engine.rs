@@ -37,15 +37,19 @@ fn pinned_finetype_version() -> &'static str {
 /// `.duckdb_extension` file to run it.
 #[test]
 fn the_release_extension_reports_the_pinned_version() {
-    let Some(extension) = std::env::var_os("DOVETAIL_FINETYPE_EXTENSION")
-        .map(std::path::PathBuf::from)
-        .filter(|path| path.is_file())
+    let Some(extension) =
+        std::env::var_os("DOVETAIL_FINETYPE_EXTENSION").map(std::path::PathBuf::from)
     else {
         eprintln!(
             "skipped: set DOVETAIL_FINETYPE_EXTENSION to a FineType release's .duckdb_extension file"
         );
         return;
     };
+    assert!(
+        extension.is_file(),
+        "DOVETAIL_FINETYPE_EXTENSION names {}, which is not a file",
+        extension.display()
+    );
 
     // DuckDB derives the extension's entry point from its file name, so the
     // release's own name (finetype-vX.Y.Z-<target>.duckdb_extension) does not load.
