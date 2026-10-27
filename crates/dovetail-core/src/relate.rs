@@ -274,7 +274,7 @@ pub fn accepted(edges: &[Edge]) -> Vec<&Edge> {
 /// could disagree with the gate about a column it is describing. Instead this is
 /// raised once and the single result serves both. The cost is per column, not per
 /// candidate pair, so it does not scale with the O(n²) candidate loop.
-const FIELD_SAMPLE_N: usize = 500;
+pub(crate) const FIELD_SAMPLE_N: usize = 500;
 
 /// Build a Frictionless Data Package descriptor for the DuckDB's tables — the one
 /// self-assembling artifact that carries BOTH halves of the model: every field is
@@ -456,7 +456,7 @@ fn types_compatible(a: &str, b: &str) -> bool {
     type_family(a) == type_family(b)
 }
 
-fn type_family(ty: &str) -> &'static str {
+pub(crate) fn type_family(ty: &str) -> &'static str {
     let t = ty.to_ascii_uppercase();
     if t.contains("INT") || t.contains("HUGEINT") {
         "int"
@@ -775,7 +775,7 @@ fn name_similarity(child: &ColumnRef, parent: &ColumnRef) -> f64 {
 }
 
 /// Naive singulariser: `categories` → `category`, `orders` → `order`.
-fn singularise(s: &str) -> String {
+pub(crate) fn singularise(s: &str) -> String {
     if let Some(stem) = s.strip_suffix("ies") {
         format!("{stem}y")
     } else if let Some(stem) = s.strip_suffix('s') {
@@ -786,7 +786,7 @@ fn singularise(s: &str) -> String {
 }
 
 /// Double-quote a SQL identifier.
-fn quote(ident: &str) -> String {
+pub(crate) fn quote(ident: &str) -> String {
     format!("\"{}\"", ident.replace('"', "\"\""))
 }
 

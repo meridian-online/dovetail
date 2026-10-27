@@ -9,6 +9,7 @@ pub mod datapackage;
 pub mod detect;
 pub mod emit;
 pub mod eval;
+pub mod evidence;
 pub mod finetype_ext;
 pub mod identifiers;
 pub mod nominations;
