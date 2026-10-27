@@ -552,12 +552,12 @@ pub(crate) fn overlap_sql(
                 "SELECT {i} AS i, count(*) FILTER (WHERE hit),
                         CAST(coalesce(sum(n) FILTER (WHERE NOT hit), 0) AS BIGINT)
                  FROM (SELECT n, v IN (SELECT {pc} FROM {relation} WHERE {pc} IS NOT NULL) AS hit
-                       FROM child)"
+                       FROM __dovetail_child_values)"
             )
         })
         .collect();
     format!(
-        "WITH child AS (SELECT {cc} AS v, count(*) AS n FROM {child_relation}
+        "WITH __dovetail_child_values AS (SELECT {cc} AS v, count(*) AS n FROM {child_relation}
                         WHERE {cc} IS NOT NULL GROUP BY {cc})
          {} ORDER BY i",
         arms.join(" UNION ALL ")

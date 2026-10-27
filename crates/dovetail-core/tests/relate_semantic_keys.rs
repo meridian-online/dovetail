@@ -18,7 +18,7 @@
 use std::path::{Path, PathBuf};
 
 use dovetail_core::relate::{
-    accepted, build_descriptor_with_types, discover_with_types, run_path, semantic_types,
+    accepted, build_descriptor_with_types, discover_with_types, run_session, semantic_types,
     EdgeStatus, SemanticTypes, CONF_HIGH,
 };
 use serde::Deserialize;
@@ -261,9 +261,9 @@ fn columns_with_unrelated_names_but_one_identifier_type_are_rewarded() {
 /// descriptor publishes for a column is byte-identical to the type the gate
 /// scored that same column on, as recorded in the foreign-key evidence.
 ///
-/// Driven through `run_path` — the whole CLI path, not a hand-assembled pair of
-/// calls — because the disagreement this rules out was an ordering bug in
-/// `run_path` itself.
+/// Driven through an attached session and `run_session` — the whole CLI path
+/// `run_path` takes, not a hand-assembled pair of calls — because the
+/// disagreement this rules out was an ordering bug in `run_path` itself.
 ///
 /// ## How much of the wrong implementation this covers
 ///
@@ -301,7 +301,14 @@ fn the_descriptor_and_the_gate_agree_about_every_column() {
         conn.execute_batch(&fixture_sql()).expect("build fixture");
     }
 
-    let run = run_path(db.to_str().unwrap()).expect("relate run");
+    // The path `run_path` takes, with the floor typing so the result never
+    // depends on the machine.
+    let session = dovetail_core::evidence::Session::attach(
+        &db,
+        dovetail_core::finetype_ext::TypingRequest::Floor,
+    )
+    .expect("attach");
+    let run = run_session(&session).expect("relate run");
 
     // What the descriptor publishes, per column.
     let mut published: std::collections::HashMap<(String, String), Option<String>> =

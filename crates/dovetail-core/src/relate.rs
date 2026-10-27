@@ -197,7 +197,9 @@ pub fn discover(conn: &Connection) -> duckdb::Result<Vec<Edge>> {
 pub fn discover_with_types(conn: &Connection, types: &SemanticTypes) -> duckdb::Result<Vec<Edge>> {
     let cols = bare_column_evidence(conn, types)?;
     let tables = table_names(&cols);
-    let relation = |table: &str| quote(table);
+    // Fully qualified, so no analyst table is shadowed by the query's own CTE.
+    let catalog = current_database(conn)?;
+    let relation = |table: &str| format!("{}.main.{}", quote(&catalog), quote(table));
     let measured = evidence::measure_edges(conn, &relation, &cols, &tables).map_err(into_duckdb)?;
     Ok(measured.iter().map(edge_from_evidence).collect())
 }
@@ -440,10 +442,16 @@ fn frictionless_type(ty: &str) -> &'static str {
 
 // --- Schema read -------------------------------------------------------------
 
-/// The columns of a bare connection's own catalog. Reads only.
+/// The columns of a bare connection's own catalog. Reads only. It reads
+/// `current_database()`'s `main` schema alone, so temp tables and other
+/// attached catalogs are not candidates.
 fn bare_columns(conn: &Connection) -> duckdb::Result<Vec<ListedColumn>> {
-    let catalog: String = conn.query_row("SELECT current_database()", [], |r| r.get(0))?;
+    let catalog = current_database(conn)?;
     evidence::list_columns(conn, &catalog).map_err(into_duckdb)
+}
+
+fn current_database(conn: &Connection) -> duckdb::Result<String> {
+    conn.query_row("SELECT current_database()", [], |r| r.get(0))
 }
 
 /// Column evidence for a bare connection, labelled by `types` rather than any
@@ -478,6 +486,7 @@ fn bare_column_evidence(
 fn into_duckdb(e: EvidenceError) -> duckdb::Error {
     match e {
         EvidenceError::Duckdb(e) => e,
+        // Unreachable here: only a session raises `Session`.
         EvidenceError::Session(message) => duckdb::Error::ToSqlConversionFailure(message.into()),
     }
 }

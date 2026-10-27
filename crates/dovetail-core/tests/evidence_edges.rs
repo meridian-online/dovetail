@@ -190,3 +190,22 @@ fn discover_twice_leaves_tables_unchanged() {
     assert_eq!(tables(&conn), before);
     assert_eq!(first.len(), second.len());
 }
+
+#[test]
+fn a_table_named_child_is_still_a_parent() {
+    let conn = duckdb::Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE child (id INTEGER, name VARCHAR);
+         INSERT INTO child VALUES (1, 'Ada'), (2, 'Alan'), (3, 'Grace');
+         CREATE TABLE toys (id INTEGER, child_id INTEGER);
+         INSERT INTO toys VALUES (10, 1), (11, 2), (12, 3), (13, 1);",
+    )
+    .unwrap();
+    let edges = discover(&conn).expect("discover");
+    let edge = edges
+        .iter()
+        .find(|e| e.child == col("toys", "child_id") && e.parent == col("child", "id"))
+        .expect("toys.child_id -> child.id is discovered");
+    assert_eq!(edge.status, EdgeStatus::Accepted);
+    assert_eq!(edge.verification.orphan_count, 0);
+}
