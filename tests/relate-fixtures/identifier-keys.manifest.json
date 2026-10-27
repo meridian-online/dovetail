@@ -6,15 +6,15 @@
       "child": "link.lei",
       "parent": "entity_registry.lei",
       "status": "accepted",
-      "status_before": "rejected",
-      "why": "a checksum-valid identifier column against a unique parent, discovered with no rename; scored 0.44 when key-likeness came only from spelling"
+      "status_before": "accepted",
+      "why": "a checksum-valid identifier column against a unique parent, discovered with no rename; scored 0.44 when key-likeness came only from spelling, and untyped it is accepted only through the exact-name key credit, because its values are key-shaped"
     },
     {
       "case": "a-raw-name-isin",
       "child": "link.isin",
       "parent": "security_registry.isin",
       "status": "accepted",
-      "status_before": "rejected",
+      "status_before": "accepted",
       "why": "the second directional key of the same link table, same reason"
     },
     {
@@ -30,9 +30,14 @@
       "child": "mixed_ref.security_ref",
       "parent": "instrument_ref.security_ref",
       "status": "suggested",
-      "status_before": "rejected",
-      "why": "every accept gate passes — 0 orphans, unique parent, confidence over the line — but the child types as LEI and the parent as ISIN, so the edge is demoted for review rather than accepted; it stays in the descriptor carrying both types"
+      "status_before": "accepted",
+      "why": "every accept gate passes — 0 orphans, unique parent, confidence over the line — but the child types as LEI and the parent as ISIN, so the edge is demoted for review rather than accepted; it stays in the descriptor carrying both types; untyped there is no mismatch to demote on, and the exact-name key credit accepts it"
     }
+  ],
+  "accepted_without_typing": [
+    "link.isin -> security_registry.isin",
+    "link.lei -> entity_registry.lei",
+    "mixed_ref.security_ref -> instrument_ref.security_ref"
   ],
   "accepted_edges": [
     "filings.entity_ref -> entity_registry.lei",

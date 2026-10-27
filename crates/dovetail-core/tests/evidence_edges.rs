@@ -135,6 +135,7 @@ fn edge_from_evidence_is_pure() {
         semantic_similarity: 0.0,
         child_label: None,
         parent_label: None,
+        parent_key_shaped: false,
     };
     let edge = edge_from_evidence(&e);
     assert_eq!(edge.status, EdgeStatus::Accepted);

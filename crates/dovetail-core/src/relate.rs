@@ -134,6 +134,81 @@ pub const ORPHAN_TOLERANCE: f64 = 0.05;
 /// edges silently.
 pub const SEMANTIC_KEY_FLOOR: f64 = 0.85;
 
+/// The fewest distinct values a parent needs for an exact-name join to earn
+/// key credit. Below it, a unique column is more likely a small attribute
+/// (`city`, `status`) than a key.
+pub const KEY_NAME_MATCH_MIN_DISTINCT: i64 = 20;
+
+/// FineType label families a key is not drawn from: person and place names,
+/// contact details, free text, dates and times, booleans, and measured
+/// numbers. An entry ending in `.` excludes the whole family; any other
+/// entry names one label. Taken from the `label` namespaces of FineType's
+/// taxonomy (`labels/definitions_*.yaml`) at the pinned release. Codes
+/// (`geography.location.country_code`, `representation.identifier.*`) are
+/// not excluded.
+pub const EXCLUDED_KEY_LABELS: &[&str] = &[
+    // names, and contact details of a person
+    "identity.person.",
+    // places and addresses
+    "geography.address.",
+    "geography.coordinate.",
+    "geography.contact.",
+    "geography.location.city",
+    "geography.location.country",
+    "geography.location.region",
+    "geography.location.continent",
+    // URLs, hosts and other internet addresses
+    "technology.internet.",
+    // free text
+    "representation.text.",
+    // dates and times
+    "datetime.",
+    // booleans
+    "representation.boolean.",
+    // numbers that measure something
+    "representation.numeric.decimal_number",
+    "representation.numeric.decimal_number_comma",
+    "representation.numeric.scientific_notation",
+    "representation.numeric.percentage",
+    "representation.numeric.si_number",
+    "representation.scientific.",
+];
+
+fn label_excluded(label: &str) -> bool {
+    EXCLUDED_KEY_LABELS.iter().any(|x| {
+        if x.ends_with('.') {
+            label.starts_with(x)
+        } else {
+            label == *x
+        }
+    })
+}
+
+/// Whether `e` meets every condition for [`exact_name_key_credit`] short of
+/// the values' shape, and the parent is untyped, so the shape decides it.
+pub(crate) fn needs_key_shape(e: &EdgeEvidence) -> bool {
+    e.parent_label.is_none() && credit_basics(e)
+}
+
+fn credit_basics(e: &EdgeEvidence) -> bool {
+    e.child.column.eq_ignore_ascii_case(&e.parent.column)
+        && e.parent_total > 0
+        && e.parent_total == e.parent_distinct
+        && e.overlap_distinct == e.child_distinct
+        && e.parent_distinct >= KEY_NAME_MATCH_MIN_DISTINCT
+}
+
+/// An exact-name join to a unique parent with full overlap earns key credit
+/// when the parent looks like a key: a typed parent outside the excluded
+/// families, or an untyped one whose values are key-shaped.
+fn exact_name_key_credit(e: &EdgeEvidence) -> bool {
+    credit_basics(e)
+        && match e.parent_label.as_deref() {
+            Some(label) => !label_excluded(label),
+            None => e.parent_key_shaped,
+        }
+}
+
 // --- Semantic typing pass ----------------------------------------------------
 
 /// Every column's finetype semantic type, resolved **once per run**.
@@ -542,8 +617,11 @@ pub fn edge_from_evidence(e: &EdgeEvidence) -> Edge {
     } else {
         parent_distinct as f64 / parent_total as f64
     };
-    let parent_key_likeness =
-        0.6 * key_signal(&parent.column, parent_leaf) + 0.4 * parent_distinct_ratio;
+    let mut parent_key_signal = key_signal(&parent.column, parent_leaf);
+    if exact_name_key_credit(e) {
+        parent_key_signal = parent_key_signal.max(SEMANTIC_KEY_FLOOR);
+    }
+    let parent_key_likeness = 0.6 * parent_key_signal + 0.4 * parent_distinct_ratio;
 
     // Confidence: pair evidence + overlap, GATED by how key-like the parent is. A
     // perfect name/overlap match against a non-key parent (e.g. a boolean) is

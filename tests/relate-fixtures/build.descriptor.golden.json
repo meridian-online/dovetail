@@ -38,6 +38,24 @@
       }
     },
     {
+      "name": "customers_f",
+      "path": "fixture.duckdb#customers_f",
+      "format": "duckdb",
+      "mediatype": "application/vnd.duckdb",
+      "schema": {
+        "fields": [
+          {
+            "name": "f_no",
+            "type": "integer"
+          },
+          {
+            "name": "city",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
       "name": "gadget_flags",
       "path": "fixture.duckdb#gadget_flags",
       "format": "duckdb",
@@ -51,6 +69,24 @@
           {
             "name": "active",
             "type": "boolean"
+          }
+        ]
+      }
+    },
+    {
+      "name": "members_g",
+      "path": "fixture.duckdb#members_g",
+      "format": "duckdb",
+      "mediatype": "application/vnd.duckdb",
+      "schema": {
+        "fields": [
+          {
+            "name": "g_no",
+            "type": "integer"
+          },
+          {
+            "name": "full_name",
+            "type": "string"
           }
         ]
       }
@@ -106,6 +142,66 @@
       }
     },
     {
+      "name": "orders_e",
+      "path": "fixture.duckdb#orders_e",
+      "format": "duckdb",
+      "mediatype": "application/vnd.duckdb",
+      "schema": {
+        "fields": [
+          {
+            "name": "e_no",
+            "type": "integer"
+          },
+          {
+            "name": "sku",
+            "type": "string"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "fields": [
+              "sku"
+            ],
+            "reference": {
+              "resource": "products_e",
+              "fields": [
+                "sku"
+              ]
+            },
+            "x-dovetailStatus": "accepted",
+            "x-dovetailConfidence": 0.77,
+            "x-dovetailEvidence": {
+              "nameSimilarity": 0.7,
+              "semanticSimilarity": 0.0,
+              "valueOverlap": 1.0,
+              "parentKeyLikeness": 0.91,
+              "childSemanticType": null,
+              "parentSemanticType": null,
+              "semanticMismatch": false,
+              "identifierAllowlistVersion": 1,
+              "parentUnique": true,
+              "orphanCount": 0,
+              "reason": "verified: 0 orphans, parent is unique, confidence 0.77 ≥ 0.60"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "people_g",
+      "path": "fixture.duckdb#people_g",
+      "format": "duckdb",
+      "mediatype": "application/vnd.duckdb",
+      "schema": {
+        "fields": [
+          {
+            "name": "full_name",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
       "name": "products",
       "path": "fixture.duckdb#products",
       "format": "duckdb",
@@ -156,6 +252,20 @@
       }
     },
     {
+      "name": "products_e",
+      "path": "fixture.duckdb#products_e",
+      "format": "duckdb",
+      "mediatype": "application/vnd.duckdb",
+      "schema": {
+        "fields": [
+          {
+            "name": "sku",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
       "name": "shipments",
       "path": "fixture.duckdb#shipments",
       "format": "duckdb",
@@ -169,6 +279,20 @@
           {
             "name": "order_id",
             "type": "integer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "stores_f",
+      "path": "fixture.duckdb#stores_f",
+      "format": "duckdb",
+      "mediatype": "application/vnd.duckdb",
+      "schema": {
+        "fields": [
+          {
+            "name": "city",
+            "type": "string"
           }
         ]
       }

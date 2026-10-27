@@ -406,6 +406,11 @@ pub struct EdgeEvidence {
     pub semantic_similarity: f64,
     pub child_label: Option<String>,
     pub parent_label: Option<String>,
+    /// Whether the parent's values look like keys (no whitespace, and at
+    /// least 90% share one length or one pattern of letters, digits and
+    /// separators). Measured only for an untyped parent that could earn
+    /// [`relate::exact_name_key_credit`] otherwise; `false` elsewhere.
+    pub parent_key_shaped: bool,
 }
 
 /// The `pass` of the descriptor's run over the analyst's own tables.
@@ -507,7 +512,7 @@ pub(crate) fn measure_edges(
         for ((parent, parent_ref, name, semantic), (overlap, orphans)) in
             candidates.into_iter().zip(counts)
         {
-            edges.push(EdgeEvidence {
+            let mut edge = EdgeEvidence {
                 child: child_ref.clone(),
                 parent: parent_ref,
                 child_total: child.non_null,
@@ -520,10 +525,43 @@ pub(crate) fn measure_edges(
                 semantic_similarity: semantic,
                 child_label: child.label.clone(),
                 parent_label: parent.label.clone(),
-            });
+                parent_key_shaped: false,
+            };
+            // One SELECT, and only for a pair the cheaper conditions leave
+            // undecided.
+            if relate::needs_key_shape(&edge) {
+                edge.parent_key_shaped =
+                    parent_key_shaped(conn, &relation(&parent.table), &parent.column)?;
+            }
+            edges.push(edge);
         }
     }
     Ok(edges)
+}
+
+/// Whether a column's non-null values look like keys: none holds whitespace,
+/// and at least 90% share one length or one pattern of letters, digits and
+/// separators. An empty column is not key-shaped.
+fn parent_key_shaped(
+    conn: &Connection,
+    relation: &str,
+    column: &str,
+) -> Result<bool, EvidenceError> {
+    let c = quote(column);
+    let sql = format!(
+        "WITH v AS (SELECT CAST({c} AS VARCHAR) AS s FROM {relation} WHERE {c} IS NOT NULL),
+              p AS (SELECT regexp_replace(regexp_replace(s, '[A-Za-z]', 'A', 'g'),
+                                          '[0-9]', '9', 'g') AS pat, length(s) AS len FROM v)
+         SELECT (SELECT count(*) FROM v),
+                (SELECT count(*) FROM v WHERE regexp_matches(s, '\\s')),
+                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p GROUP BY len)), 0),
+                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p GROUP BY pat)), 0)"
+    );
+    let (total, spaced, same_len, same_pat): (i64, i64, i64, i64) =
+        conn.query_row(&sql, [], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })?;
+    Ok(total > 0 && spaced == 0 && same_len.max(same_pat) * 10 >= total * 9)
 }
 
 fn column_ref(c: &ColumnEvidence) -> ColumnRef {
@@ -576,7 +614,8 @@ fn write_edge_evidence(
              parent_table VARCHAR, parent_column VARCHAR, child_total BIGINT,
              child_distinct BIGINT, parent_total BIGINT, parent_distinct BIGINT,
              overlap_distinct BIGINT, orphan_count BIGINT, name_similarity DOUBLE,
-             semantic_similarity DOUBLE, child_label VARCHAR, parent_label VARCHAR)",
+             semantic_similarity DOUBLE, child_label VARCHAR, parent_label VARCHAR,
+             parent_key_shaped BOOLEAN)",
     )?;
     s.conn.execute(
         "DELETE FROM memory.main.edge_evidence WHERE pass = ?",
@@ -584,7 +623,7 @@ fn write_edge_evidence(
     )?;
     let mut insert = s.conn.prepare(
         "INSERT INTO memory.main.edge_evidence
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )?;
     for r in rows {
         insert.execute(duckdb::params![
@@ -603,6 +642,7 @@ fn write_edge_evidence(
             r.semantic_similarity,
             r.child_label,
             r.parent_label,
+            r.parent_key_shaped,
         ])?;
     }
     Ok(())
