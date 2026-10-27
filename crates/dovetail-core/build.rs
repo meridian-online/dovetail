@@ -1,6 +1,9 @@
 //! Embeds the finetype tag the workspace pins as `DOVETAIL_FINETYPE_TAG`, so
 //! the FineType extension dovetail loads is checked against the same version
 //! its in-process finetype crates are built from.
+//!
+//! Assumes the workspace layout: this crate at `crates/dovetail-core`, with the
+//! workspace `Cargo.toml` two directories up.
 
 use std::path::Path;
 

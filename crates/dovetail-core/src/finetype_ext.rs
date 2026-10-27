@@ -72,7 +72,10 @@ pub enum TypingSource {
     Profiled {
         /// What `ft_version()` reported, such as `finetype 0.6.64`.
         extension_version: String,
-        /// SHA-256 over the model directory, as [`load`] describes.
+        /// SHA-256 over the model directory, as [`load`] describes. The
+        /// extension keeps the first model it loads for the life of the
+        /// process, so this describes the directory named at the process's
+        /// first successful load.
         model_sha256: String,
     },
     /// The model-free floor typing, and why.
@@ -95,7 +98,10 @@ pub enum TypingSource {
 ///
 /// The model's identity is a SHA-256 over every file under the directory,
 /// taken in order of their `/`-separated relative paths, each contributing its
-/// path, a zero byte, its length as a little-endian `u64`, and its bytes.
+/// path, a zero byte, its length as a little-endian `u64`, and its bytes. The
+/// extension keeps the first model it loads for the life of the process, so a
+/// later `load` naming another directory hashes that directory while the
+/// extension still classifies with the first.
 pub fn load(conn: &duckdb::Connection, request: TypingRequest) -> TypingSource {
     if request == TypingRequest::Floor {
         return floor("floor requested");
@@ -132,15 +138,17 @@ fn load_best(conn: &duckdb::Connection) -> Result<TypingSource, String> {
     check_model_dir(&model_dir)?;
 
     allow_unsigned(conn)?;
-    let loadable = loadable_path(&extension)?;
+    let (staging, loadable) = loadable_path(&extension)?;
     let quoted = loadable.display().to_string().replace('\'', "''");
-    conn.execute_batch(&format!("LOAD '{quoted}'"))
-        .map_err(|e| {
-            format!(
-                "FineType {tag}'s extension at {} did not load: {e}",
-                extension.display()
-            )
-        })?;
+    let loaded = conn.execute_batch(&format!("LOAD '{quoted}'"));
+    // DuckDB has mapped the library once LOAD returns; the staged copy can go.
+    drop(staging);
+    loaded.map_err(|e| {
+        format!(
+            "FineType {tag}'s extension at {} did not load: {e}",
+            extension.display()
+        )
+    })?;
 
     let reported: String = conn
         .query_row("SELECT ft_version()", [], |row| row.get(0))
@@ -217,47 +225,26 @@ fn allow_unsigned(conn: &duckdb::Connection) -> Result<(), String> {
 }
 
 /// A path to the extension under the name DuckDB loads it by: the file itself
-/// when it already has that name, else a link (a copy where links are not
-/// available) in a temporary directory keyed by the file's path.
-fn loadable_path(extension: &Path) -> Result<PathBuf, String> {
+/// when it already has that name, else a copy in a fresh private directory
+/// (unpredictable name, owner-only on Unix), which the returned guard removes
+/// when dropped. The guard must outlive the `LOAD`.
+fn loadable_path(extension: &Path) -> Result<(Option<tempfile::TempDir>, PathBuf), String> {
     if extension.file_name().is_some_and(|name| name == LOAD_NAME) {
-        return Ok(extension.to_path_buf());
+        return Ok((None, extension.to_path_buf()));
     }
-    let source = extension
-        .canonicalize()
-        .map_err(|e| format!("could not resolve {}: {e}", extension.display()))?;
-    let key = Sha256::digest(source.to_string_lossy().as_bytes());
-    let dir = std::env::temp_dir().join(format!("dovetail-finetype-{}", &hex(&key)[..16]));
-    let target = dir.join(LOAD_NAME);
     let staged = |e: std::io::Error| {
         format!(
-            "could not stage {} as {}: {e}",
-            extension.display(),
-            target.display()
+            "could not stage {} as {LOAD_NAME} for loading: {e}",
+            extension.display()
         )
     };
-    std::fs::create_dir_all(&dir).map_err(staged)?;
-
-    #[cfg(unix)]
-    {
-        if std::fs::read_link(&target).is_ok_and(|points_at| points_at == source) {
-            return Ok(target);
-        }
-    }
-    // Built beside the target and renamed over it, so a concurrent load never
-    // sees a half-written file.
-    let partial = dir.join(format!(
-        ".{LOAD_NAME}.{}.{:?}",
-        std::process::id(),
-        std::thread::current().id()
-    ));
-    let _ = std::fs::remove_file(&partial);
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(&source, &partial).map_err(staged)?;
-    #[cfg(not(unix))]
-    std::fs::copy(&source, &partial).map_err(staged)?;
-    std::fs::rename(&partial, &target).map_err(staged)?;
-    Ok(target)
+    let dir = tempfile::Builder::new()
+        .prefix("dovetail-finetype-")
+        .tempdir()
+        .map_err(staged)?;
+    let target = dir.path().join(LOAD_NAME);
+    std::fs::copy(extension, &target).map_err(staged)?;
+    Ok((Some(dir), target))
 }
 
 /// `reported` is `finetype <version>` and the version is `tag`'s, less its `v`.
@@ -282,7 +269,7 @@ fn check_version(tag: &str, reported: &str) -> Result<(), String> {
 fn hash_model_dir(dir: &Path) -> Result<String, String> {
     let mut files = Vec::new();
     collect_files(dir, "", &mut files)
-        .map_err(|e| format!("could not read the model directory {}: {e}", dir.display()))?;
+        .map_err(|e| format!("could not hash the model directory {}: {e}", dir.display()))?;
     files.sort();
     let mut hasher = Sha256::new();
     for relative in &files {
@@ -296,9 +283,13 @@ fn hash_model_dir(dir: &Path) -> Result<String, String> {
     Ok(hex(&hasher.finalize()))
 }
 
-fn collect_files(dir: &Path, prefix: &str, out: &mut Vec<String>) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
+/// Every file under `dir`, as `/`-separated paths relative to it. A symlinked
+/// directory is refused rather than followed, so the hash cannot reach outside
+/// the model directory or loop.
+fn collect_files(dir: &Path, prefix: &str, out: &mut Vec<String>) -> Result<(), String> {
+    let unreadable = |e: std::io::Error| format!("could not read {}: {e}", dir.display());
+    for entry in std::fs::read_dir(dir).map_err(unreadable)? {
+        let entry = entry.map_err(unreadable)?;
         let name = entry.file_name().to_string_lossy().into_owned();
         let relative = if prefix.is_empty() {
             name
@@ -306,8 +297,14 @@ fn collect_files(dir: &Path, prefix: &str, out: &mut Vec<String>) -> std::io::Re
             format!("{prefix}/{name}")
         };
         let path = entry.path();
-        if path.is_dir() {
+        let kind = entry.file_type().map_err(unreadable)?;
+        if kind.is_dir() {
             collect_files(&path, &relative, out)?;
+        } else if kind.is_symlink() && path.is_dir() {
+            return Err(format!(
+                "expected the model directory to hold only files and directories; found {relative}, \
+                 a symlink to a directory"
+            ));
         } else {
             out.push(relative);
         }
@@ -343,7 +340,34 @@ fn hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::check_version;
+    use super::{check_version, hash_model_dir};
+
+    #[test]
+    fn the_model_hash_covers_nested_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("config.json"), b"{}").unwrap();
+        std::fs::create_dir(dir.path().join("model2vec")).unwrap();
+        let nested = dir.path().join("model2vec/tokenizer.json");
+        std::fs::write(&nested, b"one").unwrap();
+
+        let first = hash_model_dir(dir.path()).unwrap();
+        assert_eq!(first, hash_model_dir(dir.path()).unwrap());
+        std::fs::write(&nested, b"two").unwrap();
+        assert_ne!(first, hash_model_dir(dir.path()).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_directory_is_refused() {
+        let outside = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("model2vec")).unwrap();
+        let err = hash_model_dir(dir.path()).unwrap_err();
+        assert!(
+            err.contains("model2vec") && err.contains("symlink"),
+            "{err}"
+        );
+    }
 
     #[test]
     fn version_matching_the_tag_passes() {

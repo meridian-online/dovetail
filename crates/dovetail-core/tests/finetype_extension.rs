@@ -63,17 +63,11 @@ fn floor_request_never_loads() {
 #[test]
 fn missing_extension_falls_back() {
     let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
-    let saved = std::env::var_os(EXTENSION);
-    let missing = std::env::temp_dir().join(format!(
-        "dovetail-no-such-extension-{}/finetype.duckdb_extension",
-        std::process::id()
-    ));
-    std::env::set_var(EXTENSION, &missing);
-    let source = load(&connection(), TypingRequest::Best);
-    match saved {
-        Some(value) => std::env::set_var(EXTENSION, value),
-        None => std::env::remove_var(EXTENSION),
-    }
+    let scratch = tempfile::tempdir().unwrap();
+    let missing = scratch.path().join("absent/finetype.duckdb_extension");
+    let source = with_vars(&[(EXTENSION, &missing)], || {
+        load(&connection(), TypingRequest::Best)
+    });
 
     match source {
         TypingSource::Floor { reason } => assert!(
@@ -84,17 +78,43 @@ fn missing_extension_falls_back() {
     }
 }
 
+/// Set `vars` for the length of `body`, then restore what was there.
+fn with_vars<T>(vars: &[(&str, &std::path::Path)], body: impl FnOnce() -> T) -> T {
+    let saved: Vec<_> = vars
+        .iter()
+        .map(|(name, _)| (*name, std::env::var_os(name)))
+        .collect();
+    for (name, value) in vars {
+        std::env::set_var(name, value);
+    }
+    let result = body();
+    for (name, value) in saved {
+        match value {
+            Some(value) => std::env::set_var(name, value),
+            None => std::env::remove_var(name),
+        }
+    }
+    result
+}
+
 #[test]
 fn a_connection_without_unsigned_extensions_falls_back() {
     let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
-    if std::env::var_os(EXTENSION).is_none() || std::env::var_os(MODEL_DIR).is_none() {
-        eprintln!(
-            "skipping: set {EXTENSION} and {MODEL_DIR} (scripts/fetch-finetype.sh prints both)"
-        );
-        return;
+    // Stand-ins: the setting is checked before the extension is loaded.
+    let scratch = tempfile::tempdir().unwrap();
+    let extension = scratch.path().join("finetype.duckdb_extension");
+    std::fs::write(&extension, b"not an extension").unwrap();
+    let model = scratch.path().join("model");
+    std::fs::create_dir(&model).unwrap();
+    for file in ["model.safetensors", "label_map.json", "config.json"] {
+        std::fs::write(model.join(file), b"").unwrap();
     }
+
     let conn = duckdb::Connection::open_in_memory().unwrap();
-    match load(&conn, TypingRequest::Best) {
+    let source = with_vars(&[(EXTENSION, &extension), (MODEL_DIR, &model)], || {
+        load(&conn, TypingRequest::Best)
+    });
+    match source {
         TypingSource::Floor { reason } => assert!(
             reason.contains("allow_unsigned_extensions"),
             "the reason does not name the setting: {reason}"

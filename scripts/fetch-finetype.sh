@@ -5,10 +5,14 @@
 #
 #   scripts/fetch-finetype.sh DEST_DIR
 #
-# Writes, under DEST_DIR:
+# Writes, under DEST_DIR, replacing any earlier copies of these:
 #
-#   finetype-<tag>-<target>.duckdb_extension   the file attached to the release
-#   model/                                      the model the release names
+#   finetype.duckdb_extension          the extension attached to the release,
+#                                      renamed: DuckDB derives the entry point
+#                                      from the file name
+#   finetype.duckdb_extension.source   which release asset it is, and its sha256
+#   model/                             the model the release names (the whole
+#                                      directory is replaced)
 #
 # and prints the two `export` lines that point dovetail at them.
 #
@@ -41,7 +45,7 @@ FINETYPE_REPO="meridian-online/finetype"
 
 fail() { echo "fetch-finetype: $*" >&2; exit 1; }
 
-DEST="${1:?usage: scripts/fetch-finetype.sh DEST_DIR}"
+DEST="${1:?usage: scripts/fetch-finetype.sh DEST_DIR (replaces DEST_DIR/model and DEST_DIR/finetype.duckdb_extension)}"
 case "$DEST" in
   ""|"/") fail "refusing to use '${DEST}' as the destination" ;;
 esac
@@ -165,9 +169,12 @@ echo "   $(find "${WORK}/model" -type f | wc -l | tr -d ' ') model files" >&2
 # Assembled only once every byte has been checked.
 mkdir -p "$DEST"
 DEST=$(cd "$DEST" && pwd)
-rm -rf "${DEST}/model" "${DEST:?}/${EXT_ASSET}"
-cp "${WORK}/${EXT_ASSET}" "${DEST}/${EXT_ASSET}"
+rm -rf "${DEST:?}/model"
+cp "${WORK}/${EXT_ASSET}" "${DEST}/finetype.duckdb_extension"
+printf '%s  %s\n' "$(digest_of "${WORK}/${EXT_ASSET}")" "${RELEASE}/${EXT_ASSET}" \
+  > "${DEST}/finetype.duckdb_extension.source"
 cp -R "${WORK}/model" "${DEST}/model"
+echo "   ${EXT_ASSET} -> ${DEST}/finetype.duckdb_extension" >&2
 
-printf 'export DOVETAIL_FINETYPE_EXTENSION=%q\n' "${DEST}/${EXT_ASSET}"
+printf 'export DOVETAIL_FINETYPE_EXTENSION=%q\n' "${DEST}/finetype.duckdb_extension"
 printf 'export FINETYPE_MODEL_DIR=%q\n' "${DEST}/model"
