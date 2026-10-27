@@ -34,6 +34,11 @@ thiserror = "2"
 #   strip   — drop debug symbols (the bulk of the debug-build size)
 #   lto     — thin cross-crate dead-code elimination on the Rust side
 #   opt-level "s" / codegen-units 1 — optimise the Rust code for size
+# From libduckdb-sys 1.20000.0, debug info turns on DuckDB's DEBUG
+# verification paths and makes each test binary about a quarter larger.
+[profile.dev.package.libduckdb-sys]
+debug = false
+
 [profile.release]
 opt-level = "s"
 lto = "thin"

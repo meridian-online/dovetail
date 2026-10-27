@@ -1,0 +1,7 @@
+# libduckdb-sys 1.20000.0 compiles DuckDB 2.0.0 as v2.0.0-dev88614
+# (duckdb/duckdb-rs#917), and that build fetches extensions from a path nothing
+# is published under. Naming the version restores v2.0.0. Remove this entry
+# once a libduckdb-sys release carries the fix. A CXXFLAGS set in the shell
+# overrides this one.
+[env]
+CXXFLAGS = '-DDUCKDB_VERSION="v2.0.0"'
