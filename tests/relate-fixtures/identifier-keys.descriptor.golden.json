@@ -1,0 +1,236 @@
+{
+  "$schema": "https://datapackage.org/profiles/2.0/datapackage.json",
+  "resources": [
+    {
+      "name": "entity_registry",
+      "path": "identifier-keys.duckdb#entity_registry",
+      "format": "duckdb",
+      "mediatype": "application/vnd.duckdb",
+      "schema": {
+        "fields": [
+          {
+            "name": "lei",
+            "type": "string",
+            "x-dovetailSemanticType": "finance.securities.lei"
+          },
+          {
+            "name": "legal_name",
+            "type": "string"
+          },
+          {
+            "name": "jurisdiction",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "filings",
+      "path": "identifier-keys.duckdb#filings",
+      "format": "duckdb",
+      "mediatype": "application/vnd.duckdb",
+      "schema": {
+        "fields": [
+          {
+            "name": "entity_ref",
+            "type": "string",
+            "x-dovetailSemanticType": "finance.securities.lei"
+          },
+          {
+            "name": "filed_on",
+            "type": "date",
+            "format": "%Y-%m-%d",
+            "x-dovetailSemanticType": "datetime.date.iso"
+          },
+          {
+            "name": "form",
+            "type": "string"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "fields": [
+              "entity_ref"
+            ],
+            "reference": {
+              "resource": "entity_registry",
+              "fields": [
+                "lei"
+              ]
+            },
+            "x-dovetailStatus": "accepted",
+            "x-dovetailConfidence": 0.91,
+            "x-dovetailEvidence": {
+              "nameSimilarity": 0.0,
+              "semanticSimilarity": 1.0,
+              "valueOverlap": 1.0,
+              "parentKeyLikeness": 0.91,
+              "childSemanticType": "finance.securities.lei",
+              "parentSemanticType": "finance.securities.lei",
+              "semanticMismatch": false,
+              "identifierAllowlistVersion": 1,
+              "parentUnique": true,
+              "orphanCount": 0,
+              "reason": "verified: 0 orphans, parent is unique, confidence 0.91 ≥ 0.60"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "instrument_ref",
+      "path": "identifier-keys.duckdb#instrument_ref",
+      "format": "duckdb",
+      "mediatype": "application/vnd.duckdb",
+      "schema": {
+        "fields": [
+          {
+            "name": "security_ref",
+            "type": "string",
+            "x-dovetailSemanticType": "finance.securities.isin"
+          }
+        ]
+      }
+    },
+    {
+      "name": "link",
+      "path": "identifier-keys.duckdb#link",
+      "format": "duckdb",
+      "mediatype": "application/vnd.duckdb",
+      "schema": {
+        "fields": [
+          {
+            "name": "lei",
+            "type": "string",
+            "x-dovetailSemanticType": "finance.securities.lei"
+          },
+          {
+            "name": "isin",
+            "type": "string",
+            "x-dovetailSemanticType": "finance.securities.isin"
+          },
+          {
+            "name": "method",
+            "type": "string"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "fields": [
+              "lei"
+            ],
+            "reference": {
+              "resource": "entity_registry",
+              "fields": [
+                "lei"
+              ]
+            },
+            "x-dovetailStatus": "accepted",
+            "x-dovetailConfidence": 0.91,
+            "x-dovetailEvidence": {
+              "nameSimilarity": 0.7,
+              "semanticSimilarity": 1.0,
+              "valueOverlap": 1.0,
+              "parentKeyLikeness": 0.91,
+              "childSemanticType": "finance.securities.lei",
+              "parentSemanticType": "finance.securities.lei",
+              "semanticMismatch": false,
+              "identifierAllowlistVersion": 1,
+              "parentUnique": true,
+              "orphanCount": 0,
+              "reason": "verified: 0 orphans, parent is unique, confidence 0.91 ≥ 0.60"
+            }
+          },
+          {
+            "fields": [
+              "isin"
+            ],
+            "reference": {
+              "resource": "security_registry",
+              "fields": [
+                "isin"
+              ]
+            },
+            "x-dovetailStatus": "accepted",
+            "x-dovetailConfidence": 0.91,
+            "x-dovetailEvidence": {
+              "nameSimilarity": 0.7,
+              "semanticSimilarity": 1.0,
+              "valueOverlap": 1.0,
+              "parentKeyLikeness": 0.91,
+              "childSemanticType": "finance.securities.isin",
+              "parentSemanticType": "finance.securities.isin",
+              "semanticMismatch": false,
+              "identifierAllowlistVersion": 1,
+              "parentUnique": true,
+              "orphanCount": 0,
+              "reason": "verified: 0 orphans, parent is unique, confidence 0.91 ≥ 0.60"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "mixed_ref",
+      "path": "identifier-keys.duckdb#mixed_ref",
+      "format": "duckdb",
+      "mediatype": "application/vnd.duckdb",
+      "schema": {
+        "fields": [
+          {
+            "name": "security_ref",
+            "type": "string",
+            "x-dovetailSemanticType": "finance.securities.lei"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "fields": [
+              "security_ref"
+            ],
+            "reference": {
+              "resource": "instrument_ref",
+              "fields": [
+                "security_ref"
+              ]
+            },
+            "x-dovetailStatus": "suggested",
+            "x-dovetailConfidence": 0.77,
+            "x-dovetailEvidence": {
+              "nameSimilarity": 0.7,
+              "semanticSimilarity": 0.0,
+              "valueOverlap": 1.0,
+              "parentKeyLikeness": 0.91,
+              "childSemanticType": "finance.securities.lei",
+              "parentSemanticType": "finance.securities.isin",
+              "semanticMismatch": true,
+              "identifierAllowlistVersion": 1,
+              "parentUnique": true,
+              "orphanCount": 0,
+              "reason": "demoted for review: the data verifies but the types disagree (child finance.securities.lei vs parent finance.securities.isin) — verified: 0 orphans, parent is unique, confidence 0.77 ≥ 0.60"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "security_registry",
+      "path": "identifier-keys.duckdb#security_registry",
+      "format": "duckdb",
+      "mediatype": "application/vnd.duckdb",
+      "schema": {
+        "fields": [
+          {
+            "name": "isin",
+            "type": "string",
+            "x-dovetailSemanticType": "finance.securities.isin"
+          },
+          {
+            "name": "instrument_name",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ]
+}
