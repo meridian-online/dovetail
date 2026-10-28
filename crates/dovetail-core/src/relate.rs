@@ -189,7 +189,7 @@ pub const EXCLUDED_KEY_LABELS: &[&str] = &[
     "representation.scientific.",
 ];
 
-fn label_excluded(label: &str) -> bool {
+pub(crate) fn label_excluded(label: &str) -> bool {
     EXCLUDED_KEY_LABELS.iter().any(|x| {
         if x.ends_with('.') {
             label.starts_with(x)

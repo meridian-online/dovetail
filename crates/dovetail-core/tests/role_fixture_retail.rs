@@ -226,13 +226,15 @@ fn score_stand_ins(typing: TypingRequest) -> (TypingSource, Vec<(TableEvidence, 
     let evidence = table_evidence(&s, &cols, &run.edges, &tables).unwrap();
     let written: Vec<String> = s
         .conn()
-        .prepare("SELECT \"table\" FROM memory.main.table_evidence")
+        .prepare("SELECT \"table\" FROM memory.main.table_evidence ORDER BY \"table\"")
         .unwrap()
         .query_map([], |r| r.get::<_, String>(0))
         .unwrap()
         .map(|r| r.unwrap())
         .collect();
-    assert_eq!(written, tables, "memory.table_evidence");
+    let mut sorted = tables.clone();
+    sorted.sort();
+    assert_eq!(written, sorted, "memory.table_evidence");
     let calls = evidence
         .into_iter()
         .map(|t| {
@@ -250,9 +252,15 @@ fn retail_roles_match_answer_key() {
         eprintln!("skipping: FineType's profile is unavailable: {typing:?}");
         return;
     }
+    assert_roles_match_key(&calls);
+}
+
+/// Each call's role is the answer key's; on failure, every mismatch with its
+/// scores, evidence and table.
+fn assert_roles_match_key(calls: &[(TableEvidence, RoleCall)]) {
     let key = load_answer_key(&fixture_dir().join("answer-key.json")).unwrap();
     let mut wrong = Vec::new();
-    for (t, call) in &calls {
+    for (t, call) in calls {
         eprintln!("{}: {:?} {:?}", t.name, call.role, call.scores);
         let want = key.tables[&t.name].role;
         if call.role != want {
@@ -271,7 +279,6 @@ fn retail_roles_floor_recorded() {
     let (_, calls) = score_stand_ins(TypingRequest::Floor);
     assert_eq!(calls.len(), STAND_INS.len());
     for (t, call) in &calls {
-        eprintln!("{}: {:?} {:?}", t.name, call.role, call.scores);
         assert!(
             call.typing.starts_with("floor"),
             "{}: {}",
@@ -279,4 +286,58 @@ fn retail_roles_floor_recorded() {
             call.typing
         );
     }
+    // CI runs only the floor, so the floor pins the roles too.
+    assert_roles_match_key(&calls);
+}
+
+/// What `table_evidence` measures on the retail fixture under the floor, which
+/// is the typing CI runs.
+#[test]
+fn retail_table_evidence_floor() {
+    let (_, calls) = score_stand_ins(TypingRequest::Floor);
+    let get = |name: &str| &calls.iter().find(|(t, _)| t.name == name).unwrap().0;
+    for (table, key, times) in [
+        ("customers", &["customer_id"][..], &["joined_on"][..]),
+        ("stores", &["store_id"], &[]),
+        ("categories", &["category_id"], &[]),
+        ("products", &["sku"], &[]),
+        ("transactions", &["txn_id"], &["purchased_at"]),
+        ("loyalty_visits", &["visit_id"], &["visited_on"]),
+        (
+            "customer_segments",
+            &["customer_id", "assessed_on"],
+            &["assessed_on"],
+        ),
+        ("promo_codes", &["code"], &["valid_to"]),
+    ] {
+        let t = get(table);
+        assert_eq!(t.key, key, "{table} key");
+        let names: Vec<&str> = t.time_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, times, "{table} time columns");
+        assert!(
+            t.self_references.is_empty(),
+            "{table}: {:?}",
+            t.self_references
+        );
+        assert_eq!(t.constant_date, None, "{table} constant date");
+        assert!(
+            !t.key_is_identifier,
+            "{table}: no floor label is an identifier"
+        );
+    }
+    let tx = get("transactions");
+    assert!(tx.time_columns[0].varies_within_parent, "{tx:#?}");
+    assert_eq!(tx.time_columns[0].fill_rate, 1.0);
+    assert!(
+        get("customer_segments").time_columns[0].varies_within_parent,
+        "each customer is assessed on six dates"
+    );
+    let categories = get("categories");
+    assert_eq!(categories.label_columns, vec!["name"]);
+    assert!(categories.attribute_columns.is_empty(), "{categories:#?}");
+    let stores = get("stores");
+    assert!(stores.label_columns.is_empty(), "{stores:#?}");
+    assert_eq!(stores.attribute_columns, vec!["city", "region"]);
+    let tx_attrs: Vec<&str> = tx.attribute_columns.iter().map(|s| s.as_str()).collect();
+    assert_eq!(tx_attrs, vec!["quantity", "amount", "purchased_at"]);
 }

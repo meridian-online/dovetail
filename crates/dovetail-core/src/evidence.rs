@@ -37,6 +37,32 @@ pub const AUDIT_TIME_NAMES: &[&str] = &[
     "last_update",
 ];
 
+/// Column names that refer to another row of the same table, such as an
+/// employee's manager. A name counts lower-cased, with an `_id` or `id` suffix
+/// dropped, so `manager_id` and `ParentId` count. A column needs this, or a name
+/// relate would pair with the key, to be a self-reference: a dense integer key
+/// otherwise contains every small count in the table.
+pub const SELF_POINTER_NAMES: &[&str] = &[
+    "parent",
+    "manager",
+    "reports_to",
+    "supervisor",
+    "predecessor",
+    "successor",
+    "mentor",
+    "referred_by",
+];
+
+/// Whether `name` is one of [`SELF_POINTER_NAMES`], as that list describes.
+pub fn is_self_pointer_name(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    let stem = name
+        .strip_suffix("_id")
+        .or_else(|| name.strip_suffix("id"))
+        .unwrap_or(&name);
+    SELF_POINTER_NAMES.contains(&stem) || SELF_POINTER_NAMES.contains(&name.as_str())
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum EvidenceError {
     #[error("DuckDB: {0}")]
@@ -805,9 +831,11 @@ pub(crate) fn measure_table(
             varies_within_parent: varies,
         })
         .collect();
+    // One row is not an as-of date, and an audit stamp is not one either.
     let constant_date = times
         .iter()
-        .find(|c| c.distinct == 1)
+        .filter(|_| rows > 1)
+        .find(|c| c.distinct == 1 && !c.audit_name)
         .map(|c| c.column.clone());
 
     let mut label_columns = Vec::new();
@@ -818,7 +846,7 @@ pub(crate) fn measure_table(
         }
         let labelled = c.label.as_deref().is_some_and(is_label_label)
             || (floor && LABEL_NAMES.contains(&c.column.to_ascii_lowercase().as_str()));
-        if type_family(&c.duckdb_type) == "text" && labelled {
+        if type_family(&c.duckdb_type) == "text" && labelled && !is_time_column(c) {
             label_columns.push(c.column.clone());
         } else {
             attribute_columns.push(c.column.clone());
@@ -841,7 +869,9 @@ pub(crate) fn measure_table(
 
 /// The columns whose non-null values all lie in the table's own key `key`:
 /// columns besides the key and its pointers out, of the key's type family,
-/// with a value, and not equal to the key on every row. Sorted. One statement
+/// with a value, not labelled as something a key is never drawn from, named
+/// like a pointer to the key ([`relate::name_similarity`] at least 0.3, or
+/// [`SELF_POINTER_NAMES`]), and not equal to the key on every row. Sorted. One statement
 /// over the table.
 fn self_references(
     conn: &Connection,
@@ -861,6 +891,9 @@ fn self_references(
                 && !pointers.contains(c.column.as_str())
                 && c.non_null > 0
                 && type_family(&c.duckdb_type) == type_family(&k.duckdb_type)
+                && !c.label.as_deref().is_some_and(relate::label_excluded)
+                && (relate::name_similarity(&column_ref(c), &column_ref(k)) >= 0.3
+                    || is_self_pointer_name(&c.column))
         })
         .collect();
     if candidates.is_empty() {
@@ -893,8 +926,9 @@ fn self_references(
     Ok(out)
 }
 
-/// The table's minimal key: one column unique and non-null on every row, the
-/// one something points at first, then one typed as an identifier, then the
+/// The table's minimal key: one column unique and non-null on every row, not
+/// a time and not labelled as something a key is never drawn from, the one
+/// something points at first, then one typed as an identifier, then the
 /// first; else the first unique pair among the first [`KEY_PAIR_LIMIT`] pairs
 /// of non-null columns, pointer columns first. Empty when neither is found.
 fn find_key(
@@ -917,7 +951,11 @@ fn find_key(
     let unique: Vec<&ColumnEvidence> = full
         .iter()
         .copied()
-        .filter(|c| c.distinct == rows)
+        .filter(|c| {
+            c.distinct == rows
+                && !is_time_column(c)
+                && !c.label.as_deref().is_some_and(relate::label_excluded)
+        })
         .collect();
     let single = unique
         .iter()
@@ -959,7 +997,8 @@ fn find_key(
 }
 
 /// For each of `times`, whether it takes more than one value within one value
-/// of `pointer`: `count(DISTINCT (pointer, time)) > count(DISTINCT pointer)`.
+/// of `pointer`: `count(DISTINCT (pointer, time)) > count(DISTINCT pointer)`,
+/// over the rows where both are present.
 /// One statement over the table.
 fn varies_within(
     conn: &Connection,
@@ -968,49 +1007,50 @@ fn varies_within(
     times: &[&ColumnEvidence],
 ) -> Result<Vec<bool>, EvidenceError> {
     let p = quote(pointer);
-    let mut select = vec![format!("count(DISTINCT {p})")];
-    select.extend(
-        times
-            .iter()
-            .map(|t| format!("count(DISTINCT ({p}, {}))", quote(&t.column))),
-    );
+    // Only rows with both a parent and a time count: a row constructor holding
+    // a NULL is itself not NULL, and would read as one more pair.
+    let select: Vec<String> = times
+        .iter()
+        .map(|t| {
+            let t = quote(&t.column);
+            format!(
+                "count(DISTINCT ({p}, {t})) FILTER (WHERE {p} IS NOT NULL AND {t} IS NOT NULL), \
+                 count(DISTINCT {p}) FILTER (WHERE {t} IS NOT NULL)"
+            )
+        })
+        .collect();
     let sql = format!("SELECT {} FROM {rel}", select.join(", "));
     Ok(conn.query_row(&sql, [], |r| {
-        let parents: i64 = r.get(0)?;
         (0..times.len())
-            .map(|i| Ok(r.get::<_, i64>(1 + i)? > parents))
+            .map(|i| Ok(r.get::<_, i64>(2 * i)? > r.get::<_, i64>(2 * i + 1)?))
             .collect::<duckdb::Result<Vec<_>>>()
     })?)
 }
 
-/// A SQL string literal.
-fn literal(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
-}
-
-fn literal_list(items: &[String]) -> String {
-    let items: Vec<String> = items.iter().map(|s| literal(s)).collect();
-    format!("CAST([{}] AS VARCHAR[])", items.join(", "))
-}
-
 /// Replace `memory.table_evidence` with `rows`, one per table, with the pointer
-/// columns `edges` give each.
+/// columns `edges` give each. Lists travel as bound JSON text, cast in SQL.
 fn write_table_evidence(
     s: &Session,
     rows: &[TableEvidence],
     edges: &[Edge],
 ) -> Result<(), EvidenceError> {
-    s.conn.execute_batch(
+    const TIME: &str = "STRUCT(name VARCHAR, fill_rate DOUBLE, \"distinct\" BIGINT, \
+                        audit BOOLEAN, varies_within_parent BOOLEAN)";
+    s.conn.execute_batch(&format!(
         "CREATE OR REPLACE TABLE memory.main.table_evidence (
              \"table\" VARCHAR, \"rows\" BIGINT, \"columns\" VARCHAR[], \"key\" VARCHAR[],
-             key_is_identifier BOOLEAN, pointer_columns VARCHAR[],
-             time_columns STRUCT(name VARCHAR, fill_rate DOUBLE, \"distinct\" BIGINT,
-                                 audit BOOLEAN, varies_within_parent BOOLEAN)[],
+             key_is_identifier BOOLEAN, pointer_columns VARCHAR[], time_columns {TIME}[],
              label_columns VARCHAR[], attribute_columns VARCHAR[], constant_date VARCHAR,
-             self_references VARCHAR[])",
-    )?;
+             self_references VARCHAR[])"
+    ))?;
+    let list = "CAST(CAST(? AS JSON) AS VARCHAR[])";
+    let mut insert = s.conn.prepare(&format!(
+        "INSERT INTO memory.main.table_evidence VALUES (?, ?, {list}, {list}, ?, {list},
+             CAST(CAST(? AS JSON) AS {TIME}[]), {list}, {list}, ?, {list})"
+    ))?;
+    let json = |v: serde_json::Value| v.to_string();
     for t in rows {
-        let pointers: Vec<String> = t
+        let pointers: Vec<&String> = t
             .columns
             .iter()
             .filter(|c| {
@@ -1018,42 +1058,33 @@ fn write_table_evidence(
                     e.child.table == t.name && e.parent.table != t.name && &e.child.column == *c
                 })
             })
-            .cloned()
             .collect();
-        let times: Vec<String> = t
+        let times: Vec<serde_json::Value> = t
             .time_columns
             .iter()
             .map(|c| {
-                format!(
-                    "{{'name': {}, 'fill_rate': {:?}, 'distinct': {}, 'audit': {}, 'varies_within_parent': {}}}",
-                    literal(&c.name),
-                    c.fill_rate,
-                    c.distinct,
-                    c.audit,
-                    c.varies_within_parent
-                )
+                serde_json::json!({
+                    "name": c.name,
+                    "fill_rate": c.fill_rate,
+                    "distinct": c.distinct,
+                    "audit": c.audit,
+                    "varies_within_parent": c.varies_within_parent,
+                })
             })
             .collect();
-        let constant = t
-            .constant_date
-            .as_deref()
-            .map_or("NULL".to_string(), literal);
-        s.conn.execute_batch(&format!(
-            "INSERT INTO memory.main.table_evidence VALUES ({}, {}, {}, {}, {}, {}, \
-             CAST([{}] AS STRUCT(name VARCHAR, fill_rate DOUBLE, \"distinct\" BIGINT, \
-                                 audit BOOLEAN, varies_within_parent BOOLEAN)[]), {}, {}, {}, {})",
-            literal(&t.name),
+        insert.execute(duckdb::params![
+            t.name,
             t.rows,
-            literal_list(&t.columns),
-            literal_list(&t.key),
+            json(serde_json::json!(t.columns)),
+            json(serde_json::json!(t.key)),
             t.key_is_identifier,
-            literal_list(&pointers),
-            times.join(", "),
-            literal_list(&t.label_columns),
-            literal_list(&t.attribute_columns),
-            constant,
-            literal_list(&t.self_references),
-        ))?;
+            json(serde_json::json!(pointers)),
+            json(serde_json::Value::Array(times)),
+            json(serde_json::json!(t.label_columns)),
+            json(serde_json::json!(t.attribute_columns)),
+            t.constant_date,
+            json(serde_json::json!(t.self_references)),
+        ])?;
     }
     Ok(())
 }
