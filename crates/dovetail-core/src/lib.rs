@@ -15,6 +15,7 @@ pub mod identifiers;
 pub mod nominations;
 pub mod relate;
 pub mod role_key;
+pub mod roles;
 pub mod structure;
 pub mod survey;
 pub mod transform;
