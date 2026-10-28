@@ -64,6 +64,8 @@ pub const EVENT_REPEATING_POINTER: f64 = 0.4;
 pub const EVENT_OUTNUMBERS_PARENT: f64 = 0.2;
 /// Against: the snapshot signals.
 pub const EVENT_AGAINST_SNAPSHOT_SHAPE: f64 = 0.6;
+/// Against: no pointer out (edge or carried key); an event happens to something.
+pub const EVENT_AGAINST_NO_POINTER: f64 = 0.4;
 
 // --- Weights: reference (all zero without a key) -----------------------------
 
@@ -379,7 +381,8 @@ pub fn score_table(
     let event = credit(!event_times.is_empty(), EVENT_TIME)
         + credit(repeating && varies, EVENT_REPEATING_POINTER)
         + credit(outnumbers, EVENT_OUTNUMBERS_PARENT)
-        - credit(snapshot.is_some(), EVENT_AGAINST_SNAPSHOT_SHAPE);
+        - credit(snapshot.is_some(), EVENT_AGAINST_SNAPSHOT_SHAPE)
+        - credit(pointers.is_empty(), EVENT_AGAINST_NO_POINTER);
     let reference = if has_key {
         let labels_only = !t.label_columns.is_empty()
             && describing.is_empty()
@@ -438,6 +441,7 @@ pub fn score_table(
                 best
             }
         });
+    // A lead of exactly ROLE_MARGIN counts as clear; EPS absorbs float noise.
     let role = if top_score + EPS < ROLE_FLOOR {
         evidence.push(format!(
             "unclear: the top score, {} {top_score:.2}, is under {ROLE_FLOOR}",
@@ -738,18 +742,46 @@ mod tests {
         let mut t = table(
             "customers",
             400,
-            &["customer_id", "name", "city", "created_at"],
+            &["customer_id", "name", "city", "home_store_id", "created_at"],
             &["customer_id"],
         );
         t.key_is_identifier = true;
         t.label_columns = strings(&["name"]);
         t.attribute_columns = strings(&["city", "created_at"]);
         t.time_columns = vec![time("created_at", 400, true, false)];
-        let call = score_table(&t, &[], &[], &profiled());
+        // A repeating pointer out: what makes an event is a timed row per
+        // parent, and an audit timestamp does not time anything.
+        let edges = vec![edge(
+            ("customers", "home_store_id"),
+            ("stores", "store_id"),
+            EdgeStatus::Accepted,
+            true,
+            12,
+            400,
+            12,
+        )];
+        let call = score_table(&t, &edges, &[], &profiled());
         expect(&call, Role::Entity);
         assert_eq!(call.audit_time_fields, vec!["created_at"]);
         assert_eq!(call.time_field, None);
-        assert!(score(&call, Role::Event) < ROLE_FLOOR);
+        assert!(score(&call, Role::Event) < ROLE_FLOOR, "{:?}", call.scores);
+    }
+
+    #[test]
+    fn audit_name_alone_marks_audit() {
+        let mut t = table(
+            "customers",
+            400,
+            &["customer_id", "city", "updated_at"],
+            &["customer_id"],
+        );
+        t.key_is_identifier = true;
+        t.attribute_columns = strings(&["city", "updated_at"]);
+        t.time_columns = vec![time("updated_at", 400, false, false)];
+        let call = score_table(&t, &[], &[], &profiled());
+        expect(&call, Role::Entity);
+        assert_eq!(call.audit_time_fields, vec!["updated_at"]);
+        assert_eq!(score(&call, Role::Entity), 1.0, "{:?}", call.scores);
     }
 
     #[test]
@@ -954,8 +986,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn self_reference_still_entity() {
+    fn employees() -> TableEvidence {
         let mut t = table(
             "employees",
             8,
@@ -977,15 +1008,44 @@ mod tests {
             "hire_date",
         ]);
         t.time_columns = vec![time("hire_date", 8, false, false)];
-        let call = score_table(
-            &t,
-            &[],
-            &[],
-            &TypingSource::Floor {
-                reason: "floor requested".into(),
-            },
-        );
+        t
+    }
+
+    #[test]
+    fn self_reference_still_entity() {
+        let floor = TypingSource::Floor {
+            reason: "floor requested".into(),
+        };
+        let call = score_table(&employees(), &[], &[], &floor);
         expect(&call, Role::Entity);
+        assert!(score(&call, Role::Event) < ROLE_FLOOR, "{:?}", call.scores);
+    }
+
+    #[test]
+    fn self_edge_is_not_a_pointer() {
+        let floor = TypingSource::Floor {
+            reason: "floor requested".into(),
+        };
+        let edges = vec![edge(
+            ("employees", "reports_to"),
+            ("employees", "employee_id"),
+            EdgeStatus::Suggested,
+            true,
+            3,
+            7,
+            8,
+        )];
+        let call = score_table(&employees(), &edges, &[], &floor);
+        expect(&call, Role::Entity);
+        assert!(score(&call, Role::Event) < ROLE_FLOOR, "{:?}", call.scores);
+        assert!(
+            !call
+                .evidence
+                .iter()
+                .any(|e| e.contains("pointed at") || e.contains("points at")),
+            "{:#?}",
+            call.evidence
+        );
     }
 
     #[test]
@@ -1082,6 +1142,25 @@ mod tests {
             !call.evidence.iter().any(|e| e.contains("pointed at")),
             "{:#?}",
             call.evidence
+        );
+
+        // The child side points only along the kept edge.
+        let tx = table(
+            "transactions",
+            5000,
+            &["transaction_id", "customer_id", "store_id"],
+            &["transaction_id"],
+        );
+        let call = score_table(&tx, &edges, &[], &profiled());
+        let pointing: Vec<&String> = call
+            .evidence
+            .iter()
+            .filter(|e| e.contains("points at"))
+            .collect();
+        assert_eq!(pointing.len(), 1, "{:#?}", call.evidence);
+        assert!(
+            pointing[0].contains("customers.customer_id"),
+            "{pointing:?}"
         );
     }
 
