@@ -352,7 +352,7 @@ pub fn run_with(
 }
 
 /// Each table's name once, in the order its columns first appear.
-fn table_names(cols: &[ColumnEvidence]) -> Vec<String> {
+pub(crate) fn table_names(cols: &[ColumnEvidence]) -> Vec<String> {
     let mut tables: Vec<String> = Vec::new();
     for c in cols {
         if !tables.contains(&c.table) {

@@ -11,12 +11,17 @@
 //! "Points at" means an accepted or suggested edge whose parent is unique
 //! ([`points_at`]); nothing else is role evidence. A [`CarriedKey`] from the
 //! table counts as a pointer out, with its own repeat test.
+//!
+//! [`run_session`] carries one run's roles, folds and combinations in a
+//! [`RoleModel`], beside the descriptor `relate` writes, from one typing.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
-use crate::evidence::is_audit_name;
-use crate::finetype_ext::TypingSource;
-use crate::relate::{singularise, ColumnRef, Edge, EdgeStatus};
+use crate::combine::{run_combined_with, Combination};
+use crate::evidence::{column_evidence, is_audit_name, EvidenceError, Session};
+use crate::finetype_ext::{TypingRequest, TypingSource};
+use crate::relate::{self, singularise, ColumnRef, Edge, EdgeStatus, RelateRun};
 pub use crate::role_key::{CombinationKind, Role};
 
 // --- Thresholds --------------------------------------------------------------
@@ -686,6 +691,124 @@ fn snapshot_signal(t: &TableEvidence, pointer_columns: &BTreeSet<&str>) -> Optio
         }
     }
     None
+}
+
+// --- The role model ------------------------------------------------------------
+
+/// Everything one run decided: the descriptor `relate` writes over the
+/// analyst's own tables, and the roles, folds and combinations over the
+/// combined datasets.
+pub struct RoleModel {
+    pub typing: TypingSource,
+    /// The parts' edges and descriptor, as `relate` alone gives them.
+    pub relate: RelateRun,
+    /// One per combined dataset, sorted by name.
+    pub tables: Vec<RoleCall>,
+    pub folds: Vec<Fold>,
+    pub combinations: Vec<Combination>,
+    pub carried_keys: Vec<CarriedKey>,
+    /// The edges measured with the combinations in their parts' place.
+    pub edges: Vec<Edge>,
+}
+
+/// Measure and type the session's columns once, then from that one typing:
+/// the parts' descriptor, the combinations and their views, the edges and
+/// tables over the combined datasets, each table's role, and the folds.
+pub fn run_session(s: &Session) -> Result<RoleModel, EvidenceError> {
+    let cols = column_evidence(s)?;
+    let relate = relate::run_with(s, &cols, &relate::table_names(&cols))?;
+    let combined = run_combined_with(s, &cols)?;
+    let mut tables: Vec<RoleCall> = combined
+        .tables
+        .iter()
+        .map(|t| score_table(t, &combined.edges, &combined.carried, &s.typing))
+        .collect();
+    tables.sort_by(|a, b| a.table.cmp(&b.table));
+    let folds = propose_folds(&tables, &combined.edges);
+    Ok(RoleModel {
+        typing: s.typing.clone(),
+        relate,
+        tables,
+        folds,
+        combinations: combined.combinations,
+        carried_keys: combined.carried,
+        edges: combined.edges,
+    })
+}
+
+/// Attach the DuckDB at `path` read-only under `typing` and [`run_session`]
+/// over it.
+pub fn run_path(path: &Path, typing: TypingRequest) -> Result<RoleModel, EvidenceError> {
+    run_session(&Session::attach(path, typing)?)
+}
+
+impl RoleModel {
+    /// The typing, then one line per table sorted by role and name (its
+    /// score, the runner-up and the first sentence of evidence after the
+    /// typing), then one line per fold and per combination.
+    pub fn render_summary(&self) -> String {
+        let mut out = match &self.typing {
+            TypingSource::Profiled {
+                extension_version, ..
+            } => format!("typing: profiled by {extension_version}\n"),
+            TypingSource::Floor { reason } => format!("typing: floor: {reason}\n"),
+        };
+        let mut calls: Vec<&RoleCall> = self.tables.iter().collect();
+        calls.sort_by(|a, b| (a.role, &a.table).cmp(&(b.role, &b.table)));
+        let width = calls.iter().map(|c| c.table.len()).max().unwrap_or(0);
+        for c in calls {
+            let mut ranked: Vec<(Role, f64)> = c
+                .scores
+                .iter()
+                .copied()
+                .filter(|(r, _)| *r != Role::Unclear)
+                .collect();
+            // Highest first; the enum's order breaks a tie, as scoring does.
+            ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+            let (top, next) = (ranked.first(), ranked.get(1));
+            let score = match top {
+                Some((r, s)) if *r == c.role => format!("{s:.2}"),
+                Some((r, s)) => format!("{} {s:.2}", role_name(*r)),
+                None => String::new(),
+            };
+            let next = next
+                .map(|(r, s)| format!(", next {} {s:.2}", role_name(*r)))
+                .unwrap_or_default();
+            let why = c.evidence.get(1).map(String::as_str).unwrap_or("");
+            out.push_str(&format!(
+                "{:<9} {:<width$}  {score}{next}: {why}\n",
+                role_name(c.role),
+                c.table
+            ));
+        }
+        for f in &self.folds {
+            out.push_str(&format!(
+                "fold {} into {} as {}, along {}.{} -> {}.{}\n",
+                f.reference,
+                f.host,
+                f.struct_column,
+                f.host,
+                f.child_column,
+                f.reference,
+                f.parent_column
+            ));
+        }
+        for c in &self.combinations {
+            let how = match (&c.kind, &c.token_column) {
+                (CombinationKind::Duplicate, _) | (_, None) => {
+                    format!("duplicate, keeps {}", c.parts[0])
+                }
+                (CombinationKind::Partition, Some(t)) => format!("partition by {}", t.name),
+                (CombinationKind::Snapshot, Some(t)) => format!("snapshot by {}", t.name),
+            };
+            out.push_str(&format!(
+                "combine {} from {}: {how}\n",
+                c.name,
+                c.parts.join(", ")
+            ));
+        }
+        out
+    }
 }
 
 #[cfg(test)]

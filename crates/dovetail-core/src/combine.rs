@@ -736,10 +736,18 @@ pub struct CombinedRun {
 /// joins and tables over the combined datasets in place of their parts. Edge
 /// rows are written under [`Pass::Combined`].
 pub fn run_combined(s: &Session) -> Result<CombinedRun, EvidenceError> {
-    let cols = column_evidence(s)?;
-    let mut combinations = find_combinations(s, &cols)?;
+    run_combined_with(s, &column_evidence(s)?)
+}
+
+/// [`run_combined`] from column evidence the caller already has, so a column
+/// measured and typed for the descriptor is not typed again.
+pub fn run_combined_with(
+    s: &Session,
+    cols: &[ColumnEvidence],
+) -> Result<CombinedRun, EvidenceError> {
+    let mut combinations = find_combinations(s, cols)?;
     let datasets = create_views(s, &combinations)?;
-    let columns = view_column_evidence(s, &combinations, &cols)?;
+    let columns = view_column_evidence(s, &combinations, cols)?;
     let measured = edge_evidence(s, &columns, &datasets, Pass::Combined)?;
     let (edges, carried) =
         carry_snapshot_keys(s, &mut combinations, &datasets, &columns, &measured)?;

@@ -132,7 +132,8 @@ fn run_survey_cmd(args: Vec<String>) -> ExitCode {
 
 /// `dovetail relate <duckdb-path>` — read a loaded DuckDB, discover and verify
 /// candidate foreign keys, report accepted + to-review edges (rejected noise is
-/// suppressed), and print constraint DDL for the auto-accepted edges.
+/// suppressed), print constraint DDL for the auto-accepted edges, then each
+/// table's role, the folds and the combinations.
 const RELATE_HELP: &str = "\
 dovetail relate <duckdb-path> [--out <datapackage.json>]
 
@@ -141,7 +142,9 @@ discovery), scores candidate foreign keys on naming, value overlap and parent
 key-likeness, then VERIFIES each against the data. Verified high-confidence edges
 auto-accept (no manual step); coincidences and broken references are rejected;
 plausible-but-unprovable edges are surfaced for review. Prints ACCEPT/REVIEW
-status and constraint DDL for the accepted edges.
+status and constraint DDL for the accepted edges, then what each table is for
+(entity, event, reference, bridge, snapshot or unclear), the lookups that fold
+into the one table using them, and the tables that combine into one dataset.
 
 ARGS:
     <duckdb-path>           A DuckDB database the analyst has already loaded.
@@ -152,7 +155,9 @@ OPTIONS:
 ";
 
 fn run_relate(args: Vec<String>) -> ExitCode {
-    use dovetail_core::relate::{constraint_ddl, run_path, EdgeStatus};
+    use dovetail_core::finetype_ext::TypingRequest;
+    use dovetail_core::relate::{constraint_ddl, EdgeStatus};
+    use dovetail_core::roles::run_path;
     if wants_help(&args) {
         print!("{RELATE_HELP}");
         return ExitCode::SUCCESS;
@@ -166,14 +171,17 @@ fn run_relate(args: Vec<String>) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let run = match run_path(db) {
-        Ok(r) => r,
+    // One session and one typing: the descriptor and the roles read the same
+    // column evidence.
+    let model = match run_path(std::path::Path::new(db), TypingRequest::Best) {
+        Ok(m) => m,
         Err(e) => {
             eprintln!("dovetail relate: {db}: {e}");
             return ExitCode::FAILURE;
         }
     };
-    let edges = run.edges;
+    let run = &model.relate;
+    let edges = &run.edges;
 
     // Write/update the Data Package descriptor with the discovered foreignKeys.
     if let Some(out_path) = out {
@@ -186,7 +194,7 @@ fn run_relate(args: Vec<String>) -> ExitCode {
     }
 
     let (mut accepted_n, mut review_n) = (0u32, 0u32);
-    for e in &edges {
+    for e in edges {
         let mark = match e.status {
             EdgeStatus::Accepted => {
                 accepted_n += 1;
@@ -207,8 +215,9 @@ fn run_relate(args: Vec<String>) -> ExitCode {
     }
     eprintln!("\ndovetail relate: {accepted_n} accepted, {review_n} to review");
     if accepted_n > 0 {
-        println!("\n{}", constraint_ddl(&edges).trim_end());
+        println!("\n{}", constraint_ddl(edges).trim_end());
     }
+    println!("\n{}", model.render_summary().trim_end());
     ExitCode::SUCCESS
 }
 
