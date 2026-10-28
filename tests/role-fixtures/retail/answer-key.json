@@ -1,0 +1,25 @@
+{
+  "name": "retail",
+  "tables": {
+    "customers": { "role": "entity", "why": "People the business serves; transactions, visits and segments all point at it." },
+    "stores": { "role": "entity", "why": "Places the business trades from; transactions and visits point at it." },
+    "products": { "role": "entity", "why": "Things sold, identified by sku; transactions point at it." },
+    "categories": { "role": "reference", "why": "Eight labels for products, pointed at only by products." },
+    "transactions": { "role": "event", "why": "One row per sale, stamped with purchased_at." },
+    "loyalty_visits": { "role": "event", "why": "One row per store visit, stamped with visited_on." },
+    "customer_segments": { "role": "snapshot", "why": "Each customer reassessed on six dates; the date repeats across rows." },
+    "promo_codes": { "role": "unclear", "why": "Twenty codes and nothing points at them or from them." },
+    "suppliers": { "role": "entity", "why": "North and south tables hold disjoint suppliers, one table cut in two." },
+    "price_list": { "role": "snapshot", "why": "The same skus priced again in 2025." },
+    "members": { "role": "snapshot", "why": "The same member ids listed again in 2025 with a changed tier." },
+    "member_visits": { "role": "event", "why": "One row per member visit, stamped with visited_at." }
+  },
+  "folds": [
+    { "reference": "categories", "into": "products" }
+  ],
+  "combinations": [
+    { "name": "suppliers", "parts": ["suppliers_north", "suppliers_south"], "kind": "partition" },
+    { "name": "price_list", "parts": ["price_list_2024", "price_list_2025"], "kind": "snapshot" },
+    { "name": "members", "parts": ["members_2024", "members_2025"], "kind": "snapshot" }
+  ]
+}
