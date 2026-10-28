@@ -1,0 +1,11 @@
+{
+  "name": "PremierLeague",
+  "tables": {
+    "Actions": { "role": "event", "why": "One player's statistics in one match, keyed player and match; points at Matches, whose Date times it, and at Players and Teams." },
+    "Matches": { "role": "event", "why": "One row per fixture of the 2011-12 season, stamped with Date and pointing at the home and away team." },
+    "Players": { "role": "entity", "why": "One row per footballer, id and name; Actions points at it." },
+    "Teams": { "role": "entity", "why": "The twenty clubs, id and name; Matches and Actions both point at it." }
+  },
+  "folds": [],
+  "combinations": []
+}

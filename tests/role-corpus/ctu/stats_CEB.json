@@ -1,0 +1,15 @@
+{
+  "name": "stats_CEB",
+  "tables": {
+    "badges": { "role": "event", "why": "One row per badge awarded to a user, stamped with Date; UserId repeats." },
+    "comments": { "role": "event", "why": "One row per comment on a post, stamped with CreationDate; PostId and UserId repeat." },
+    "postHistory": { "role": "event", "why": "One row per revision of a post, stamped with CreationDate, pointing at posts and users." },
+    "postLinks": { "role": "event", "why": "One row per link made between two posts, stamped with CreationDate; points at posts twice." },
+    "posts": { "role": "entity", "why": "One row per question or answer keyed by Id; comments, votes, postHistory, postLinks and tags point at it, and CreationDate is its business date." },
+    "tags": { "role": "entity", "why": "One row per tag keyed by Id with its usage count and excerpt post; nothing points at it." },
+    "users": { "role": "entity", "why": "One row per site user keyed by Id with reputation and vote counts; most tables point at it, and CreationDate is the signup date." },
+    "votes": { "role": "event", "why": "One row per vote on a post, stamped with CreationDate; PostId repeats." }
+  },
+  "folds": [],
+  "combinations": []
+}

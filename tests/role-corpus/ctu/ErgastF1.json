@@ -1,0 +1,24 @@
+{
+  "name": "ErgastF1",
+  "tables": {
+    "circuits": { "role": "entity", "why": "One row per racing circuit with its location and coordinates; races point at it." },
+    "constructorResults": { "role": "event", "why": "One constructor's points at one race; points at races, whose date times it, and at constructors, which repeat across races." },
+    "constructorStandings": { "role": "snapshot", "why": "Each constructor's cumulative championship standing as of each race; constructor plus race is unique and the race repeats across rows." },
+    "constructors": { "role": "entity", "why": "One row per team that builds cars; results, qualifying and standings point at it." },
+    "driverStandings": { "role": "snapshot", "why": "Each driver's cumulative championship standing as of each race; driver plus race is unique and the race repeats across rows." },
+    "drivers": { "role": "entity", "why": "One row per driver with name and date of birth; results, laps, stops and standings point at it." },
+    "lapTimes": { "role": "event", "why": "One row per lap a driver completed in a race, keyed race, driver and lap; timed by the race's date." },
+    "pitStops": { "role": "event", "why": "One row per pit stop, keyed race, driver and stop, stamped with the time of day and the lap." },
+    "qualifying": { "role": "event", "why": "One driver's qualifying session at one race; points at races, drivers and constructors, timed by the race's date." },
+    "races": { "role": "event", "why": "One row per grand prix, stamped with its date and pointing at the circuit and season; most tables point at it." },
+    "results": { "role": "event", "why": "One driver's finishing result at one race; points at races, drivers, constructors and status." },
+    "seasons": { "role": "reference", "why": "Sixty-eight championship years with only a Wikipedia url, pointed at only by races." },
+    "status": { "role": "reference", "why": "Labels for how a driver finished (Finished, +1 Lap, Engine), pointed at only by results." },
+    "target": { "role": "snapshot", "why": "A win flag added beside driverStandings, row for row on the same ids, race and driver; it carries that table's role." }
+  },
+  "folds": [
+    { "reference": "status", "into": "results" },
+    { "reference": "seasons", "into": "races" }
+  ],
+  "combinations": []
+}

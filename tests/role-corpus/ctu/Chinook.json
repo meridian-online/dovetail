@@ -1,0 +1,21 @@
+{
+  "name": "Chinook",
+  "tables": {
+    "Album": { "role": "entity", "why": "One row per album keyed by AlbumId, pointing at Artist; Track points at it." },
+    "Artist": { "role": "entity", "why": "275 recording artists keyed by ArtistId with only a name; Album points at it. An open set of real performers rather than a code list, so an entity, not a reference." },
+    "Customer": { "role": "entity", "why": "One row per customer keyed by CustomerId with name, address and contact details; Invoice points at it." },
+    "Employee": { "role": "entity", "why": "Eight staff keyed by EmployeeId with names, addresses and hire dates (business dates); Customer points at it and ReportsTo is a self-reference." },
+    "Genre": { "role": "reference", "why": "25 genre names keyed by GenreId, pointed at only by Track." },
+    "Invoice": { "role": "event", "why": "One row per sale, stamped with InvoiceDate; CustomerId repeats across invoices." },
+    "InvoiceLine": { "role": "event", "why": "Lines of an invoice, one per track bought, pointing at Invoice and Track; a line item, so an event whose time sits on Invoice." },
+    "MediaType": { "role": "reference", "why": "Five media-type names keyed by MediaTypeId, pointed at only by Track." },
+    "Playlist": { "role": "entity", "why": "18 named playlists keyed by PlaylistId, the collection side of the PlaylistTrack bridge; a thing tracks belong to rather than a label on a code." },
+    "PlaylistTrack": { "role": "bridge", "why": "Pure link of PlaylistId and TrackId, both pointers, keyed by the pair." },
+    "Track": { "role": "entity", "why": "One row per track keyed by TrackId, pointing at Album, Genre and MediaType; InvoiceLine and PlaylistTrack point at it." }
+  },
+  "folds": [
+    { "reference": "Genre", "into": "Track" },
+    { "reference": "MediaType", "into": "Track" }
+  ],
+  "combinations": []
+}

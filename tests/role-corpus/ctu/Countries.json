@@ -1,0 +1,13 @@
+{
+  "name": "Countries",
+  "tables": {
+    "Data": { "role": "snapshot", "why": "World Bank indicator values per country and indicator, one column per year 1960 to 2011: yearly state held wide, a snapshot once pivoted long." },
+    "Metadata - Countries": { "role": "entity", "why": "One row per country keyed by Country Code with region, income group and notes; Data and target point at it." },
+    "Metadata - Indicators": { "role": "reference", "why": "88 indicator codes with their name, source note and organisation, pointed at only by Data." },
+    "target": { "role": "snapshot", "why": "One 2012 value per country, keyed by Country Code: the one-period case, with the year in the column name." }
+  },
+  "folds": [
+    { "reference": "Metadata - Indicators", "into": "Data" }
+  ],
+  "combinations": []
+}

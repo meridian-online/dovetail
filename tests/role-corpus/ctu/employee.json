@@ -1,0 +1,13 @@
+{
+  "name": "employee",
+  "tables": {
+    "departments": { "role": "reference", "why": "Nine department names keyed by dept_no; dept_emp and dept_manager both point at it, so it stays unfolded." },
+    "dept_emp": { "role": "snapshot", "why": "Which department each employee was in, from from_date to to_date: the employee's state over time, not an occurrence." },
+    "dept_manager": { "role": "snapshot", "why": "Who managed each department, from from_date to to_date: the department's state over time." },
+    "employees": { "role": "entity", "why": "One row per employee keyed by emp_no with names, gender, birth and hire dates (business dates); every other table points at it." },
+    "salaries": { "role": "snapshot", "why": "Each employee's salary as of from_date, keyed by emp_no plus from_date; about 6,000 dates across 2.8 million rows, the employee's pay state over time." },
+    "titles": { "role": "snapshot", "why": "Each employee's job title as of from_date, keyed by emp_no, title and from_date; about 6,000 dates across 443,000 rows, the employee's title state over time." }
+  },
+  "folds": [],
+  "combinations": []
+}

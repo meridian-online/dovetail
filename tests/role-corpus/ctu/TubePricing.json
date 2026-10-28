@@ -1,0 +1,29 @@
+{
+  "name": "TubePricing",
+  "tables": {
+    "bill_of_materials": { "role": "bridge", "why": "Links tube assemblies to components with a quantity on the link." },
+    "comp_adaptor": { "role": "entity", "why": "One row per adaptor component keyed by component_id with its dimensions, a subtype of components." },
+    "comp_boss": { "role": "entity", "why": "One row per boss component keyed by component_id with its dimensions, a subtype of components." },
+    "comp_elbow": { "role": "entity", "why": "One row per elbow component keyed by component_id with its dimensions, a subtype of components." },
+    "comp_float": { "role": "entity", "why": "One row per float component keyed by component_id with its dimensions, a subtype of components." },
+    "comp_hfl": { "role": "entity", "why": "One row per hfl component keyed by component_id with its dimensions, a subtype of components." },
+    "comp_nut": { "role": "entity", "why": "One row per nut component keyed by component_id with its dimensions, a subtype of components." },
+    "comp_other": { "role": "entity", "why": "One row per other component keyed by component_id with part name and weight, a subtype of components." },
+    "comp_sleeve": { "role": "entity", "why": "One row per sleeve component keyed by component_id with its dimensions, a subtype of components." },
+    "comp_straight": { "role": "entity", "why": "One row per straight component keyed by component_id with its dimensions, a subtype of components." },
+    "comp_tee": { "role": "entity", "why": "Four tee components keyed by component_id with their dimensions, a subtype of components." },
+    "comp_threaded": { "role": "entity", "why": "One row per threaded component keyed by component_id with up to four ends' dimensions, a subtype of components." },
+    "components": { "role": "entity", "why": "One row per component keyed by component_id with name and type; bill_of_materials and every comp_ table point at it." },
+    "spec": { "role": "bridge", "why": "Links tube assemblies to specification codes; the codes have no table of their own." },
+    "target": { "role": "event", "why": "One row per supplier price quote for a tube assembly, stamped with quote_date; tube_assembly_id repeats." },
+    "tube": { "role": "entity", "why": "One row per tube assembly keyed by tube_assembly_id with material and geometry; bill_of_materials, spec and target point at it." },
+    "tube_end_form": { "role": "reference", "why": "27 end-form codes with a forming flag, pointed at only by tube (end_a and end_x)." },
+    "type_component": { "role": "reference", "why": "29 component-type codes with their name, pointed at by components and most comp_ tables." },
+    "type_connection": { "role": "reference", "why": "14 connection-type codes with their name, pointed at by several comp_ tables." },
+    "type_end_form": { "role": "reference", "why": "Eight end-form codes with their name, pointed at by several comp_ tables." }
+  },
+  "folds": [
+    { "reference": "tube_end_form", "into": "tube" }
+  ],
+  "combinations": []
+}

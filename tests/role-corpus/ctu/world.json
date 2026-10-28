@@ -1,0 +1,10 @@
+{
+  "name": "world",
+  "tables": {
+    "City": { "role": "entity", "why": "One row per city keyed by ID with name, district and population, pointing at Country; Country.Capital points at it." },
+    "Country": { "role": "entity", "why": "One row per country keyed by Code with continent, area, population, GNP and government; City and CountryLanguage point at it." },
+    "CountryLanguage": { "role": "bridge", "why": "Links countries to the languages spoken there, with official flag and share; the language is a code with no table of its own, as in Mondial's language and imdb's genres." }
+  },
+  "folds": [],
+  "combinations": []
+}

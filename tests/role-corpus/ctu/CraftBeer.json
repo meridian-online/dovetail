@@ -1,0 +1,9 @@
+{
+  "name": "CraftBeer",
+  "tables": {
+    "beers": { "role": "entity", "why": "One row per beer keyed by id with abv, ibu, style and size, pointing at breweries." },
+    "breweries": { "role": "entity", "why": "One row per brewery keyed by id with name, city and state; beers points at it." }
+  },
+  "folds": [],
+  "combinations": []
+}

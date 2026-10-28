@@ -1,0 +1,14 @@
+{
+  "name": "imdb_MovieLens",
+  "tables": {
+    "actors": { "role": "entity", "why": "One row per actor keyed by actorid with gender and quality; movies2actors points at it." },
+    "directors": { "role": "entity", "why": "One row per director keyed by directorid with quality and revenue bands; movies2directors points at it." },
+    "movies": { "role": "entity", "why": "One row per film keyed by movieid with year band, language, country and running time; three link tables point at it." },
+    "movies2actors": { "role": "bridge", "why": "Links movies to actors with a cast_num on the link; the pair is the key." },
+    "movies2directors": { "role": "bridge", "why": "Links movies to directors with a genre on the link; the pair is the key." },
+    "u2base": { "role": "bridge", "why": "Links users to movies with a rating on the link and no time column, the pair its key." },
+    "users": { "role": "entity", "why": "One row per user keyed by userid with age, gender and occupation codes; u2base points at it." }
+  },
+  "folds": [],
+  "combinations": []
+}
