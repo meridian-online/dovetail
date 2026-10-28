@@ -58,9 +58,13 @@ fetch_ctu() {
     echo "== ctu/$db"
     part=$out/.$db.part
     rm -rf "$part" && mkdir -p "$part"
-    attach="LOAD mysql; ATTACH $(sql_str "$CTU_CONN database=$db") AS src (TYPE mysql, READ_ONLY);"
+    attach="INSTALL mysql; LOAD mysql; ATTACH $(sql_str "$CTU_CONN database=$db") AS src (TYPE mysql, READ_ONLY);"
     tables=$(duck -noheader -list -c "$attach
       SELECT table_name FROM mysql_query('src', 'SELECT table_name FROM information_schema.tables WHERE table_schema = ''$db'' AND table_type = ''BASE TABLE''') ORDER BY 1;")
+    if [[ -z $tables ]]; then
+      echo "ctu/$db: the server lists no base tables; check the name against CTU_DBS" >&2
+      exit 1
+    fi
     sql=$attach
     while IFS= read -r t; do
       [[ -n $t ]] || continue
