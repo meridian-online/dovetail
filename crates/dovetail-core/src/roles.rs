@@ -197,28 +197,30 @@ pub struct Fold {
     pub struct_column: String,
 }
 
-/// The fold rule: a reference folds when exactly one table points at it. Two
-/// tables pointing at it make it shared, so it stays a dataset of its own.
+/// The fold rule: a reference folds when there is one pointing column of one
+/// table. Two tables pointing at it make it shared; two columns of one table
+/// make it a role-playing lookup (origin and destination). Either way it stays
+/// a dataset of its own.
 fn foldable(pointers: &[&Edge]) -> bool {
-    let mut hosts: Vec<&str> = pointers.iter().map(|e| e.child.table.as_str()).collect();
-    hosts.sort_unstable();
-    hosts.dedup();
-    hosts.len() == 1
+    let mut columns: Vec<(&str, &str)> = pointers
+        .iter()
+        .map(|e| (e.child.table.as_str(), e.child.column.as_str()))
+        .collect();
+    columns.sort_unstable();
+    columns.dedup();
+    columns.len() == 1
 }
 
 /// The folds to propose, one per foldable reference, sorted by reference.
 pub fn propose_folds(calls: &[RoleCall], edges: &[Edge]) -> Vec<Fold> {
     let mut folds: Vec<Fold> = Vec::new();
     for call in calls.iter().filter(|c| c.role == Role::Reference) {
-        let mut pointers: Vec<&Edge> = points_at(edges)
+        let pointers: Vec<&Edge> = points_at(edges)
             .filter(|e| e.parent.table == call.table && e.child.table != call.table)
             .collect();
         if !foldable(&pointers) {
             continue;
         }
-        pointers.sort_by(|a, b| {
-            (&a.child.column, &a.parent.column).cmp(&(&b.child.column, &b.parent.column))
-        });
         let e = pointers[0];
         folds.push(Fold {
             reference: call.table.clone(),
@@ -1428,7 +1430,7 @@ mod tests {
     }
 
     #[test]
-    fn two_columns_of_one_table_still_fold_once() {
+    fn two_columns_of_one_table_stay_a_reference() {
         let e = |c: &str| {
             edge(
                 ("products", c),
@@ -1442,9 +1444,7 @@ mod tests {
         };
         let edges = [e("main_id"), e("alt_id")];
         let calls = [call("categories", Role::Reference)];
-        let folds = propose_folds(&calls, &edges);
-        assert_eq!(folds.len(), 1);
-        assert_eq!(folds[0].child_column, "alt_id");
+        assert!(propose_folds(&calls, &edges).is_empty());
     }
 
     #[test]
