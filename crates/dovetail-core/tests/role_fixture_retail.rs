@@ -1,12 +1,14 @@
 //! The retail role fixture: it builds at the stated size, its answer key loads,
-//! and `relate` finds the joins the stand-in schema implies.
+//! `relate` finds the joins the stand-in schema implies, and the stand-in
+//! tables score to the roles the key gives them.
 
 use std::path::{Path, PathBuf};
 
-use dovetail_core::evidence::Session;
-use dovetail_core::finetype_ext::TypingRequest;
-use dovetail_core::relate::{run_session, EdgeStatus};
+use dovetail_core::evidence::{column_evidence, table_evidence, Session};
+use dovetail_core::finetype_ext::{TypingRequest, TypingSource};
+use dovetail_core::relate::{run_session, run_with, EdgeStatus};
 use dovetail_core::role_key::{load_answer_key, CombinationKind, Role};
+use dovetail_core::roles::{score_table, RoleCall, TableEvidence};
 
 fn fixture_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/role-fixtures/retail")
@@ -198,4 +200,83 @@ fn relate_finds_the_stand_in_joins() {
         !between,
         "an edge runs between loyalty_visits and member_visits"
     );
+}
+
+/// The tables that stand in for Brightfield's own; the combined parts and the
+/// visits that point at a combination wait for combinations.
+const STAND_INS: [&str; 8] = [
+    "customers",
+    "stores",
+    "categories",
+    "products",
+    "transactions",
+    "loyalty_visits",
+    "customer_segments",
+    "promo_codes",
+];
+
+/// Score the stand-in tables under `typing`, with each table's evidence.
+fn score_stand_ins(typing: TypingRequest) -> (TypingSource, Vec<(TableEvidence, RoleCall)>) {
+    let s = Session::from_sql(&build_sql(), typing).unwrap();
+    let cols = column_evidence(&s).unwrap();
+    let mut all: Vec<String> = cols.iter().map(|c| c.table.clone()).collect();
+    all.dedup();
+    let run = run_with(&s, &cols, &all).unwrap();
+    let tables: Vec<String> = STAND_INS.iter().map(|t| t.to_string()).collect();
+    let evidence = table_evidence(&s, &cols, &run.edges, &tables).unwrap();
+    let written: Vec<String> = s
+        .conn()
+        .prepare("SELECT \"table\" FROM memory.main.table_evidence")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+    assert_eq!(written, tables, "memory.table_evidence");
+    let calls = evidence
+        .into_iter()
+        .map(|t| {
+            let call = score_table(&t, &run.edges, &[], &s.typing);
+            (t, call)
+        })
+        .collect();
+    (s.typing.clone(), calls)
+}
+
+#[test]
+fn retail_roles_match_answer_key() {
+    let (typing, calls) = score_stand_ins(TypingRequest::Best);
+    if !matches!(typing, TypingSource::Profiled { .. }) {
+        eprintln!("skipping: FineType's profile is unavailable: {typing:?}");
+        return;
+    }
+    let key = load_answer_key(&fixture_dir().join("answer-key.json")).unwrap();
+    let mut wrong = Vec::new();
+    for (t, call) in &calls {
+        eprintln!("{}: {:?} {:?}", t.name, call.role, call.scores);
+        let want = key.tables[&t.name].role;
+        if call.role != want {
+            wrong.push(format!(
+                "{}: got {:?}, want {want:?}\n  scores {:?}\n  evidence {:#?}\n  table {t:#?}",
+                t.name, call.role, call.scores, call.evidence
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    assert_eq!(calls.len(), STAND_INS.len());
+}
+
+#[test]
+fn retail_roles_floor_recorded() {
+    let (_, calls) = score_stand_ins(TypingRequest::Floor);
+    assert_eq!(calls.len(), STAND_INS.len());
+    for (t, call) in &calls {
+        eprintln!("{}: {:?} {:?}", t.name, call.role, call.scores);
+        assert!(
+            call.typing.starts_with("floor"),
+            "{}: {}",
+            t.name,
+            call.typing
+        );
+    }
 }

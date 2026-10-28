@@ -12,12 +12,14 @@
 //! [`SESSION_PREFIX`] for a session and empty for a bare connection), so the
 //! same measurements run on a connection dovetail must never write to.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use duckdb::Connection;
 
 use crate::finetype_ext::{self, TypingRequest, TypingSource};
-use crate::relate::{self, quote, type_family, ColumnRef, FIELD_SAMPLE_N};
+use crate::relate::{self, quote, type_family, ColumnRef, Edge, FIELD_SAMPLE_N};
+use crate::roles::{points_at, TableEvidence, TimeColumn};
 
 /// How a session's queries name the analyst's tables.
 pub(crate) const SESSION_PREFIX: &str = "src.main.";
@@ -668,6 +670,390 @@ fn write_edge_evidence(
             r.parent_label,
             r.parent_key_shaped,
         ])?;
+    }
+    Ok(())
+}
+
+/// The most column pairs [`table_evidence`] tests for a key before it gives up.
+const KEY_PAIR_LIMIT: usize = 20;
+
+/// Column names the floor takes as labels, ignoring case.
+const LABEL_NAMES: &[&str] = &["name", "label", "title", "description", "desc", "code"];
+
+/// Whether a FineType label names, describes or codes something: a person's or
+/// thing's name, free text, or a code.
+fn is_label_label(label: &str) -> bool {
+    let leaf = label.rsplit('.').next().unwrap_or(label);
+    matches!(
+        label,
+        "representation.text.entity_name"
+            | "representation.text.plain_text"
+            | "representation.text.word"
+    ) || leaf.ends_with("_name")
+        || leaf.ends_with("_code")
+}
+
+fn is_time_column(c: &ColumnEvidence) -> bool {
+    let ty = c.duckdb_type.to_ascii_uppercase();
+    ty == "DATE"
+        || ty.starts_with("TIMESTAMP")
+        || c.label
+            .as_deref()
+            .is_some_and(|l| l.starts_with("datetime."))
+}
+
+/// Measure each of `tables`: its rows, its key, its time columns and how they
+/// vary within the first pointer out, and its label and attribute columns.
+/// `edges` give the pointers, as [`crate::roles::points_at`] reads them. A name
+/// that is a view in the session's `memory` catalog is read from there. The
+/// rows are written to `memory.table_evidence`, replacing what was there.
+pub fn table_evidence(
+    s: &Session,
+    cols: &[ColumnEvidence],
+    edges: &[Edge],
+    tables: &[String],
+) -> Result<Vec<TableEvidence>, EvidenceError> {
+    let views = memory_views(s.conn())?;
+    let relation = |table: &str| {
+        if views.contains(table) {
+            format!("memory.main.{}", quote(table))
+        } else {
+            format!("{SESSION_PREFIX}{}", quote(table))
+        }
+    };
+    let floor = matches!(s.typing, TypingSource::Floor { .. });
+    let out = tables
+        .iter()
+        .map(|t| measure_table(s.conn(), &relation, cols, edges, t, floor))
+        .collect::<Result<Vec<_>, _>>()?;
+    write_table_evidence(s, &out, edges)?;
+    Ok(out)
+}
+
+/// One table's evidence. `floor` takes label columns by name as well as label.
+pub(crate) fn measure_table(
+    conn: &Connection,
+    relation: &dyn Fn(&str) -> String,
+    cols: &[ColumnEvidence],
+    edges: &[Edge],
+    table: &str,
+    floor: bool,
+) -> Result<TableEvidence, EvidenceError> {
+    let tcols: Vec<&ColumnEvidence> = cols.iter().filter(|c| c.table == table).collect();
+    let rel = relation(table);
+    let rows = match tcols.first() {
+        Some(c) => c.rows,
+        None => conn.query_row(&format!("SELECT count(*) FROM {rel}"), [], |r| r.get(0))?,
+    };
+    let pointers: BTreeSet<&str> = points_at(edges)
+        .filter(|e| e.child.table == table && e.parent.table != table)
+        .map(|e| e.child.column.as_str())
+        .collect();
+    let pointed_at: BTreeSet<&str> = points_at(edges)
+        .filter(|e| e.parent.table == table && e.child.table != table)
+        .map(|e| e.parent.column.as_str())
+        .collect();
+    // The identifier labels relate gives key credit to, and no others.
+    let identifier = |c: &ColumnEvidence| {
+        c.label
+            .as_deref()
+            .is_some_and(crate::identifiers::is_identifier_leaf)
+    };
+
+    let key = find_key(
+        conn,
+        &rel,
+        &tcols,
+        &pointers,
+        &pointed_at,
+        &identifier,
+        rows,
+    )?;
+    let key_is_identifier = !key.is_empty()
+        && key
+            .iter()
+            .all(|k| tcols.iter().any(|c| &c.column == k && identifier(c)));
+
+    let self_references = match key.as_slice() {
+        [k] => self_references(conn, &rel, &tcols, k, &pointers)?,
+        _ => vec![],
+    };
+
+    // The first pointer out, in column order, is the parent a time varies within.
+    let first_pointer = tcols.iter().find(|c| pointers.contains(c.column.as_str()));
+    let times: Vec<&ColumnEvidence> = tcols
+        .iter()
+        .copied()
+        .filter(|c| is_time_column(c))
+        .collect();
+    let varies = match (first_pointer, times.is_empty()) {
+        (Some(p), false) => varies_within(conn, &rel, &p.column, &times)?,
+        _ => vec![false; times.len()],
+    };
+    let time_columns: Vec<TimeColumn> = times
+        .iter()
+        .zip(varies)
+        .map(|(c, varies)| TimeColumn {
+            name: c.column.clone(),
+            fill_rate: if rows > 0 {
+                c.non_null as f64 / rows as f64
+            } else {
+                0.0
+            },
+            distinct: c.distinct,
+            audit: c.audit_name,
+            varies_within_parent: varies,
+        })
+        .collect();
+    let constant_date = times
+        .iter()
+        .find(|c| c.distinct == 1)
+        .map(|c| c.column.clone());
+
+    let mut label_columns = Vec::new();
+    let mut attribute_columns = Vec::new();
+    for c in &tcols {
+        if key.contains(&c.column) || pointers.contains(c.column.as_str()) {
+            continue;
+        }
+        let labelled = c.label.as_deref().is_some_and(is_label_label)
+            || (floor && LABEL_NAMES.contains(&c.column.to_ascii_lowercase().as_str()));
+        if type_family(&c.duckdb_type) == "text" && labelled {
+            label_columns.push(c.column.clone());
+        } else {
+            attribute_columns.push(c.column.clone());
+        }
+    }
+
+    Ok(TableEvidence {
+        name: table.to_string(),
+        rows,
+        columns: tcols.iter().map(|c| c.column.clone()).collect(),
+        key,
+        key_is_identifier,
+        time_columns,
+        label_columns,
+        attribute_columns,
+        constant_date,
+        self_references,
+    })
+}
+
+/// The columns whose non-null values all lie in the table's own key `key`:
+/// columns besides the key and its pointers out, of the key's type family,
+/// with a value, and not equal to the key on every row. Sorted. One statement
+/// over the table.
+fn self_references(
+    conn: &Connection,
+    rel: &str,
+    tcols: &[&ColumnEvidence],
+    key: &str,
+    pointers: &BTreeSet<&str>,
+) -> Result<Vec<String>, EvidenceError> {
+    let Some(k) = tcols.iter().find(|c| c.column == key) else {
+        return Ok(vec![]);
+    };
+    let candidates: Vec<&ColumnEvidence> = tcols
+        .iter()
+        .copied()
+        .filter(|c| {
+            c.column != key
+                && !pointers.contains(c.column.as_str())
+                && c.non_null > 0
+                && type_family(&c.duckdb_type) == type_family(&k.duckdb_type)
+        })
+        .collect();
+    if candidates.is_empty() {
+        return Ok(vec![]);
+    }
+    let kq = quote(key);
+    let select: Vec<String> = candidates
+        .iter()
+        .map(|c| {
+            let cq = quote(&c.column);
+            format!(
+                "count(*) FILTER (WHERE {cq} IS NOT NULL AND {cq} NOT IN (SELECT {kq} FROM {rel})), \
+                 count(*) FILTER (WHERE {cq} IS DISTINCT FROM {kq})"
+            )
+        })
+        .collect();
+    let sql = format!("SELECT {} FROM {rel}", select.join(", "));
+    let found = conn.query_row(&sql, [], |r| {
+        (0..candidates.len())
+            .map(|i| Ok(r.get::<_, i64>(2 * i)? == 0 && r.get::<_, i64>(2 * i + 1)? > 0))
+            .collect::<duckdb::Result<Vec<_>>>()
+    })?;
+    let mut out: Vec<String> = candidates
+        .iter()
+        .zip(found)
+        .filter(|(_, f)| *f)
+        .map(|(c, _)| c.column.clone())
+        .collect();
+    out.sort();
+    Ok(out)
+}
+
+/// The table's minimal key: one column unique and non-null on every row, the
+/// one something points at first, then one typed as an identifier, then the
+/// first; else the first unique pair among the first [`KEY_PAIR_LIMIT`] pairs
+/// of non-null columns, pointer columns first. Empty when neither is found.
+fn find_key(
+    conn: &Connection,
+    rel: &str,
+    tcols: &[&ColumnEvidence],
+    pointers: &BTreeSet<&str>,
+    pointed_at: &BTreeSet<&str>,
+    identifier: &dyn Fn(&ColumnEvidence) -> bool,
+    rows: i64,
+) -> Result<Vec<String>, EvidenceError> {
+    if rows <= 0 {
+        return Ok(vec![]);
+    }
+    let full: Vec<&ColumnEvidence> = tcols
+        .iter()
+        .copied()
+        .filter(|c| c.non_null == rows)
+        .collect();
+    let unique: Vec<&ColumnEvidence> = full
+        .iter()
+        .copied()
+        .filter(|c| c.distinct == rows)
+        .collect();
+    let single = unique
+        .iter()
+        .find(|c| pointed_at.contains(c.column.as_str()))
+        .or_else(|| unique.iter().find(|c| identifier(c)))
+        .or_else(|| unique.first());
+    if let Some(c) = single {
+        return Ok(vec![c.column.clone()]);
+    }
+    let mut ordered: Vec<&ColumnEvidence> = full
+        .iter()
+        .copied()
+        .filter(|c| pointers.contains(c.column.as_str()))
+        .collect();
+    ordered.extend(
+        full.iter()
+            .copied()
+            .filter(|c| !pointers.contains(c.column.as_str())),
+    );
+    let pairs = (0..ordered.len())
+        .flat_map(|i| (i + 1..ordered.len()).map(move |j| (i, j)))
+        .take(KEY_PAIR_LIMIT);
+    for (i, j) in pairs {
+        let (a, b) = (&ordered[i].column, &ordered[j].column);
+        let distinct: i64 = conn.query_row(
+            &format!(
+                "SELECT count(DISTINCT ({}, {})) FROM {rel}",
+                quote(a),
+                quote(b)
+            ),
+            [],
+            |r| r.get(0),
+        )?;
+        if distinct == rows {
+            return Ok(vec![a.clone(), b.clone()]);
+        }
+    }
+    Ok(vec![])
+}
+
+/// For each of `times`, whether it takes more than one value within one value
+/// of `pointer`: `count(DISTINCT (pointer, time)) > count(DISTINCT pointer)`.
+/// One statement over the table.
+fn varies_within(
+    conn: &Connection,
+    rel: &str,
+    pointer: &str,
+    times: &[&ColumnEvidence],
+) -> Result<Vec<bool>, EvidenceError> {
+    let p = quote(pointer);
+    let mut select = vec![format!("count(DISTINCT {p})")];
+    select.extend(
+        times
+            .iter()
+            .map(|t| format!("count(DISTINCT ({p}, {}))", quote(&t.column))),
+    );
+    let sql = format!("SELECT {} FROM {rel}", select.join(", "));
+    Ok(conn.query_row(&sql, [], |r| {
+        let parents: i64 = r.get(0)?;
+        (0..times.len())
+            .map(|i| Ok(r.get::<_, i64>(1 + i)? > parents))
+            .collect::<duckdb::Result<Vec<_>>>()
+    })?)
+}
+
+/// A SQL string literal.
+fn literal(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+fn literal_list(items: &[String]) -> String {
+    let items: Vec<String> = items.iter().map(|s| literal(s)).collect();
+    format!("CAST([{}] AS VARCHAR[])", items.join(", "))
+}
+
+/// Replace `memory.table_evidence` with `rows`, one per table, with the pointer
+/// columns `edges` give each.
+fn write_table_evidence(
+    s: &Session,
+    rows: &[TableEvidence],
+    edges: &[Edge],
+) -> Result<(), EvidenceError> {
+    s.conn.execute_batch(
+        "CREATE OR REPLACE TABLE memory.main.table_evidence (
+             \"table\" VARCHAR, \"rows\" BIGINT, \"columns\" VARCHAR[], \"key\" VARCHAR[],
+             key_is_identifier BOOLEAN, pointer_columns VARCHAR[],
+             time_columns STRUCT(name VARCHAR, fill_rate DOUBLE, \"distinct\" BIGINT,
+                                 audit BOOLEAN, varies_within_parent BOOLEAN)[],
+             label_columns VARCHAR[], attribute_columns VARCHAR[], constant_date VARCHAR,
+             self_references VARCHAR[])",
+    )?;
+    for t in rows {
+        let pointers: Vec<String> = t
+            .columns
+            .iter()
+            .filter(|c| {
+                points_at(edges).any(|e| {
+                    e.child.table == t.name && e.parent.table != t.name && &e.child.column == *c
+                })
+            })
+            .cloned()
+            .collect();
+        let times: Vec<String> = t
+            .time_columns
+            .iter()
+            .map(|c| {
+                format!(
+                    "{{'name': {}, 'fill_rate': {:?}, 'distinct': {}, 'audit': {}, 'varies_within_parent': {}}}",
+                    literal(&c.name),
+                    c.fill_rate,
+                    c.distinct,
+                    c.audit,
+                    c.varies_within_parent
+                )
+            })
+            .collect();
+        let constant = t
+            .constant_date
+            .as_deref()
+            .map_or("NULL".to_string(), literal);
+        s.conn.execute_batch(&format!(
+            "INSERT INTO memory.main.table_evidence VALUES ({}, {}, {}, {}, {}, {}, \
+             CAST([{}] AS STRUCT(name VARCHAR, fill_rate DOUBLE, \"distinct\" BIGINT, \
+                                 audit BOOLEAN, varies_within_parent BOOLEAN)[]), {}, {}, {}, {})",
+            literal(&t.name),
+            t.rows,
+            literal_list(&t.columns),
+            literal_list(&t.key),
+            t.key_is_identifier,
+            literal_list(&pointers),
+            times.join(", "),
+            literal_list(&t.label_columns),
+            literal_list(&t.attribute_columns),
+            constant,
+            literal_list(&t.self_references),
+        ))?;
     }
     Ok(())
 }

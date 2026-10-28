@@ -53,6 +53,10 @@ pub const ENTITY_AUDIT_TIMES_ONLY: f64 = 0.15;
 pub const ENTITY_AGAINST_EVENT_SHAPE: f64 = 0.5;
 /// Against: the snapshot signals; its rows are states as of a date.
 pub const ENTITY_AGAINST_SNAPSHOT_SHAPE: f64 = 0.3;
+/// Against: isolation. A table nothing points at, that points at nothing and
+/// refers to nothing in itself fits no role the evidence can name. Added for
+/// the retail fixture's promo_codes, which its answer key calls unclear.
+pub const ENTITY_AGAINST_ISOLATED: f64 = 0.4;
 
 // --- Weights: event ----------------------------------------------------------
 
@@ -81,6 +85,9 @@ pub const REFERENCE_AGAINST_TIME: f64 = 0.4;
 pub const REFERENCE_AGAINST_POINTER_OUT: f64 = 0.4;
 /// Against: attribute columns, which make it a small entity.
 pub const REFERENCE_AGAINST_ATTRIBUTES: f64 = 0.4;
+/// Against: isolation, as [`ENTITY_AGAINST_ISOLATED`]; a lookup nothing uses
+/// is not a lookup.
+pub const REFERENCE_AGAINST_ISOLATED: f64 = 0.4;
 
 // --- Weights: bridge (all zero with fewer than two pointers out) -------------
 
@@ -133,6 +140,9 @@ pub struct TableEvidence {
     pub attribute_columns: Vec<String>,
     /// A date column with one distinct value.
     pub constant_date: Option<String>,
+    /// Columns whose values all lie in the table's own single-column key,
+    /// such as `reports_to`; sorted.
+    pub self_references: Vec<String>,
 }
 
 /// One table's role, every role's score, and why.
@@ -311,6 +321,8 @@ pub fn score_table(
             && c.distinct as f64 / rows as f64 > SNAPSHOT_MAX_DATE_RATIO
     });
     let non_key_columns = t.columns.len().saturating_sub(t.key.len());
+    // A self-reference only exempts a table from isolation; it earns nothing.
+    let isolated = inbound.is_empty() && pointers.is_empty() && t.self_references.is_empty();
 
     // --- Evidence -----------------------------------------------------------
     if has_key {
@@ -328,6 +340,19 @@ pub fn score_table(
         ));
     }
     evidence.extend(pointers.iter().map(|p| p.sentence.clone()));
+    if let [key] = t.key.as_slice() {
+        evidence.extend(
+            t.self_references
+                .iter()
+                .map(|c| format!("{c} refers to {key} in the same table")),
+        );
+    }
+    if isolated {
+        evidence.push(format!(
+            "nothing points at {}, and it points at nothing",
+            t.name
+        ));
+    }
     for c in &t.time_columns {
         if is_audit(c) {
             evidence.push(format!("{} is an audit timestamp", c.name));
@@ -375,6 +400,7 @@ pub fn score_table(
                 ENTITY_AGAINST_EVENT_SHAPE,
             )
             - credit(snapshot.is_some(), ENTITY_AGAINST_SNAPSHOT_SHAPE)
+            - credit(isolated, ENTITY_AGAINST_ISOLATED)
     } else {
         0.0
     };
@@ -393,6 +419,7 @@ pub fn score_table(
             - credit(!non_audit.is_empty(), REFERENCE_AGAINST_TIME)
             - credit(!pointers.is_empty(), REFERENCE_AGAINST_POINTER_OUT)
             - credit(!describing.is_empty(), REFERENCE_AGAINST_ATTRIBUTES)
+            - credit(isolated, REFERENCE_AGAINST_ISOLATED)
     } else {
         0.0
     };
@@ -608,6 +635,7 @@ mod tests {
             label_columns: vec![],
             attribute_columns: vec![],
             constant_date: None,
+            self_references: vec![],
         }
     }
 
@@ -778,7 +806,16 @@ mod tests {
         t.key_is_identifier = true;
         t.attribute_columns = strings(&["city", "updated_at"]);
         t.time_columns = vec![time("updated_at", 400, false, false)];
-        let call = score_table(&t, &[], &[], &profiled());
+        let edges = vec![edge(
+            ("transactions", "customer_id"),
+            ("customers", "customer_id"),
+            EdgeStatus::Accepted,
+            true,
+            380,
+            5000,
+            400,
+        )];
+        let call = score_table(&t, &edges, &[], &profiled());
         expect(&call, Role::Entity);
         assert_eq!(call.audit_time_fields, vec!["updated_at"]);
         assert_eq!(score(&call, Role::Entity), 1.0, "{:?}", call.scores);
@@ -1008,6 +1045,7 @@ mod tests {
             "hire_date",
         ]);
         t.time_columns = vec![time("hire_date", 8, false, false)];
+        t.self_references = strings(&["reports_to"]);
         t
     }
 
@@ -1049,6 +1087,37 @@ mod tests {
     }
 
     #[test]
+    fn timed_table_with_no_pointer_scores_no_event() {
+        // A keyless log with a well-filled time and nothing it points at: the
+        // time earns EVENT_TIME and the missing pointer takes it back.
+        let mut t = table("audit_log", 500, &["message", "logged_on"], &[]);
+        t.attribute_columns = strings(&["message", "logged_on"]);
+        t.time_columns = vec![time("logged_on", 480, false, false)];
+        let call = score_table(&t, &[], &[], &profiled());
+        check_shape(&call);
+        assert_eq!(score(&call, Role::Event), 0.0, "{:?}", call.scores);
+
+        // One repeating pointer out lifts the penalty; the time does not vary
+        // within it, so only the time and the outnumbered parent count.
+        let edges = vec![edge(
+            ("audit_log", "user_id"),
+            ("users", "user_id"),
+            EdgeStatus::Accepted,
+            true,
+            40,
+            500,
+            50,
+        )];
+        t.columns.push("user_id".into());
+        let call = score_table(&t, &edges, &[], &profiled());
+        assert!(
+            (score(&call, Role::Event) - (EVENT_TIME + EVENT_OUTNUMBERS_PARENT)).abs() < 1e-6,
+            "{:?}",
+            call.scores
+        );
+    }
+
+    #[test]
     fn empty_table_is_unclear() {
         let t = table("archive", 0, &["id", "note"], &[]);
         let call = score_table(&t, &[], &[], &profiled());
@@ -1063,17 +1132,79 @@ mod tests {
 
     #[test]
     fn close_scores_are_unclear() {
-        // A small label table nothing points at, its key untyped: it reads as
-        // a lookup and as an entity about equally.
-        let mut t = table("codes", 8, &["code_id", "description"], &["code_id"]);
+        // A large code list something points at, its key untyped: past the
+        // reference's row limit it reads as a lookup and as an entity about
+        // equally.
+        let mut t = table("codes", 2000, &["code_id", "description"], &["code_id"]);
         t.label_columns = strings(&["description"]);
-        let call = score_table(&t, &[], &[], &profiled());
+        let edges = vec![edge(
+            ("claims", "code_id"),
+            ("codes", "code_id"),
+            EdgeStatus::Accepted,
+            true,
+            1500,
+            9000,
+            2000,
+        )];
+        let call = score_table(&t, &edges, &[], &profiled());
         expect(&call, Role::Unclear);
         let mut s: Vec<f64> = call.scores.iter().map(|(_, s)| *s).collect();
         s.sort_by(|a, b| b.partial_cmp(a).unwrap());
         assert!(s[0] >= ROLE_FLOOR, "{:?}", call.scores);
         assert!(s[0] - s[1] < ROLE_MARGIN, "{:?}", call.scores);
         assert!(score(&call, Role::Entity) > 0.0 && score(&call, Role::Reference) > 0.0);
+    }
+
+    #[test]
+    fn isolated_table_is_unclear() {
+        // promo_codes: a keyed code list with a discount and an expiry date,
+        // and nothing points at it or from it.
+        let mut t = table(
+            "promo_codes",
+            20,
+            &["code", "discount_pct", "valid_to"],
+            &["code"],
+        );
+        t.key_is_identifier = true;
+        t.attribute_columns = strings(&["discount_pct", "valid_to"]);
+        t.time_columns = vec![time("valid_to", 20, false, false)];
+        let call = score_table(&t, &[], &[], &profiled());
+        expect(&call, Role::Unclear);
+        assert!(
+            call.evidence
+                .iter()
+                .any(|e| e == "nothing points at promo_codes, and it points at nothing"),
+            "{:#?}",
+            call.evidence
+        );
+    }
+
+    #[test]
+    fn self_reference_exempts_from_isolation() {
+        let floor = TypingSource::Floor {
+            reason: "floor requested".into(),
+        };
+        let with = score_table(&employees(), &[], &[], &floor);
+        let mut alone = employees();
+        alone.self_references.clear();
+        let without = score_table(&alone, &[], &[], &floor);
+        expect(&with, Role::Entity);
+        expect(&without, Role::Unclear);
+        assert!(
+            (score(&with, Role::Entity) - score(&without, Role::Entity) - ENTITY_AGAINST_ISOLATED)
+                .abs()
+                < 1e-6,
+            "{:?} against {:?}",
+            with.scores,
+            without.scores
+        );
+        assert!(
+            with.evidence
+                .iter()
+                .any(|e| e == "reports_to refers to employee_id in the same table"),
+            "{:#?}",
+            with.evidence
+        );
     }
 
     #[test]
