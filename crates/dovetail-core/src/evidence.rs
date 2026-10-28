@@ -576,8 +576,38 @@ pub fn edge_evidence(
     datasets: &[Dataset],
     pass: Pass,
 ) -> Result<Vec<EdgeEvidence>, EvidenceError> {
+    edge_evidence_with(s, cols, datasets, pass, &|_, _| false, Vec::new())
+}
+
+/// [`edge_evidence`], leaving out every pair of tables `skip(child, parent)`
+/// names and taking `reused` rows, measured before, in their place. The rows
+/// come back, and are written, in the order [`edge_evidence`] would measure
+/// them: child, then parent, in `cols` order.
+pub fn edge_evidence_with(
+    s: &Session,
+    cols: &[ColumnEvidence],
+    datasets: &[Dataset],
+    pass: Pass,
+    skip: &dyn Fn(&str, &str) -> bool,
+    reused: Vec<EdgeEvidence>,
+) -> Result<Vec<EdgeEvidence>, EvidenceError> {
     let tables = dataset_names(datasets)?;
-    let edges = measure_edges(s.conn(), &relation_of(datasets), cols, &tables)?;
+    let mut edges = measure_edges(s.conn(), &relation_of(datasets), cols, &tables, skip)?;
+    if !reused.is_empty() {
+        let position: std::collections::BTreeMap<(&str, &str), usize> = cols
+            .iter()
+            .enumerate()
+            .map(|(i, c)| ((c.table.as_str(), c.column.as_str()), i))
+            .collect();
+        let at = |c: &ColumnRef| {
+            position
+                .get(&(c.table.as_str(), c.column.as_str()))
+                .copied()
+                .unwrap_or(usize::MAX)
+        };
+        edges.extend(reused);
+        edges.sort_by_key(|e| (at(&e.child), at(&e.parent)));
+    }
     write_edge_evidence(s, pass.as_str(), &edges)?;
     Ok(edges)
 }
@@ -587,12 +617,14 @@ pub fn edge_evidence(
 /// share a type family, the child has a non-null value, and the pair's name or
 /// semantic similarity reaches 0.3. Totals and distincts come from `cols`;
 /// one query per child column measures overlap and orphans against all its
-/// candidate parents. `relation` renders a table name as the relation to read.
+/// candidate parents. `relation` renders a table name as the relation to read;
+/// a pair of tables `skip(child, parent)` names is no candidate.
 pub(crate) fn measure_edges(
     conn: &Connection,
     relation: &dyn Fn(&str) -> String,
     cols: &[ColumnEvidence],
     tables: &[String],
+    skip: &dyn Fn(&str, &str) -> bool,
 ) -> Result<Vec<EdgeEvidence>, EvidenceError> {
     let in_scope: Vec<&ColumnEvidence> =
         cols.iter().filter(|c| tables.contains(&c.table)).collect();
@@ -607,6 +639,7 @@ pub(crate) fn measure_edges(
         let mut candidates = Vec::new();
         for parent in &in_scope {
             if child.table == parent.table
+                || skip(&child.table, &parent.table)
                 || type_family(&child.duckdb_type) != type_family(&parent.duckdb_type)
             {
                 continue;

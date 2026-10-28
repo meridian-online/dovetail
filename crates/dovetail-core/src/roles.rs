@@ -13,13 +13,15 @@
 //! table counts as a pointer out, with its own repeat test.
 //!
 //! [`run_session`] carries one run's roles, folds and combinations in a
-//! [`RoleModel`], beside the descriptor `relate` writes, from one typing.
+//! [`RoleModel`], beside the descriptor `relate` writes, from one typing. It
+//! runs in two stages, [`run_parts`] (the descriptor) and [`run_roles`], so a
+//! caller can write the descriptor before the roles are scored.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use crate::combine::{run_combined_with, Combination};
-use crate::evidence::{column_evidence, is_audit_name, EvidenceError, Session};
+use crate::combine::{find_combinations, run_combined_with, Combination};
+use crate::evidence::{column_evidence, is_audit_name, ColumnEvidence, EvidenceError, Session};
 use crate::finetype_ext::{TypingRequest, TypingSource};
 use crate::relate::{self, singularise, ColumnRef, Edge, EdgeStatus, RelateRun};
 pub use crate::role_key::{CombinationKind, Role};
@@ -711,13 +713,44 @@ pub struct RoleModel {
     pub edges: Vec<Edge>,
 }
 
-/// Measure and type the session's columns once, then from that one typing:
-/// the parts' descriptor, the combinations and their views, the edges and
-/// tables over the combined datasets, each table's role, and the folds.
-pub fn run_session(s: &Session) -> Result<RoleModel, EvidenceError> {
-    let cols = column_evidence(s)?;
-    let relate = relate::run_with(s, &cols, &relate::table_names(&cols))?;
-    let combined = run_combined_with(s, &cols)?;
+/// The first stage of a run: the session's columns measured and typed, the
+/// combinations found among them, and the descriptor over the analyst's own
+/// tables, where no two parts of one combination are a candidate join.
+pub struct PartsRun {
+    pub columns: Vec<ColumnEvidence>,
+    pub combinations: Vec<Combination>,
+    pub relate: RelateRun,
+}
+
+/// Measure and type the session's columns once, find the combinations, and
+/// run `relate` over the tables, leaving out joins between parts of one
+/// combination.
+pub fn run_parts(s: &Session) -> Result<PartsRun, EvidenceError> {
+    let columns = column_evidence(s)?;
+    let combinations = find_combinations(s, &columns)?;
+    let siblings = |child: &str, parent: &str| {
+        combinations
+            .iter()
+            .any(|c| c.parts.iter().any(|p| p == child) && c.parts.iter().any(|p| p == parent))
+    };
+    let relate = relate::run_with_skipping(s, &columns, &relate::table_names(&columns), &siblings)?;
+    Ok(PartsRun {
+        columns,
+        combinations,
+        relate,
+    })
+}
+
+/// The second stage, from the first's typing: the combinations' views, the
+/// edges and tables over the combined datasets (pairs of untouched tables
+/// reused from the parts pass), each table's role, and the folds.
+pub fn run_roles(s: &Session, parts: PartsRun) -> Result<RoleModel, EvidenceError> {
+    let combined = run_combined_with(
+        s,
+        &parts.columns,
+        parts.combinations,
+        Some(&parts.relate.measured),
+    )?;
     let mut tables: Vec<RoleCall> = combined
         .tables
         .iter()
@@ -727,13 +760,18 @@ pub fn run_session(s: &Session) -> Result<RoleModel, EvidenceError> {
     let folds = propose_folds(&tables, &combined.edges);
     Ok(RoleModel {
         typing: s.typing.clone(),
-        relate,
+        relate: parts.relate,
         tables,
         folds,
         combinations: combined.combinations,
         carried_keys: combined.carried,
         edges: combined.edges,
     })
+}
+
+/// [`run_parts`], then [`run_roles`].
+pub fn run_session(s: &Session) -> Result<RoleModel, EvidenceError> {
+    run_roles(s, run_parts(s)?)
 }
 
 /// Attach the DuckDB at `path` read-only under `typing` and [`run_session`]
@@ -774,9 +812,13 @@ impl RoleModel {
             let next = next
                 .map(|(r, s)| format!(", next {} {s:.2}", role_name(*r)))
                 .unwrap_or_default();
-            let why = c.evidence.get(1).map(String::as_str).unwrap_or("");
+            let why = c
+                .evidence
+                .get(1)
+                .map(|w| format!(": {w}"))
+                .unwrap_or_default();
             out.push_str(&format!(
-                "{:<9} {:<width$}  {score}{next}: {why}\n",
+                "{:<9} {:<width$}  {score}{next}{why}\n",
                 role_name(c.role),
                 c.table
             ));

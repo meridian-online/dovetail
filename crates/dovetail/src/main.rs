@@ -155,9 +155,10 @@ OPTIONS:
 ";
 
 fn run_relate(args: Vec<String>) -> ExitCode {
+    use dovetail_core::evidence::Session;
     use dovetail_core::finetype_ext::TypingRequest;
     use dovetail_core::relate::{constraint_ddl, EdgeStatus};
-    use dovetail_core::roles::run_path;
+    use dovetail_core::roles::{run_parts, run_roles};
     if wants_help(&args) {
         print!("{RELATE_HELP}");
         return ExitCode::SUCCESS;
@@ -172,15 +173,19 @@ fn run_relate(args: Vec<String>) -> ExitCode {
         }
     };
     // One session and one typing: the descriptor and the roles read the same
-    // column evidence.
-    let model = match run_path(std::path::Path::new(db), TypingRequest::Best) {
-        Ok(m) => m,
+    // column evidence. The descriptor and join summary are out before the
+    // roles are scored, so a roles failure leaves them in place.
+    let parts = match Session::attach(std::path::Path::new(db), TypingRequest::Best)
+        .and_then(|s| run_parts(&s).map(|p| (s, p)))
+    {
+        Ok(r) => r,
         Err(e) => {
             eprintln!("dovetail relate: {db}: {e}");
             return ExitCode::FAILURE;
         }
     };
-    let run = &model.relate;
+    let (session, parts) = parts;
+    let run = &parts.relate;
     let edges = &run.edges;
 
     // Write/update the Data Package descriptor with the discovered foreignKeys.
@@ -217,7 +222,13 @@ fn run_relate(args: Vec<String>) -> ExitCode {
     if accepted_n > 0 {
         println!("\n{}", constraint_ddl(edges).trim_end());
     }
-    println!("\n{}", model.render_summary().trim_end());
+    match run_roles(&session, parts) {
+        Ok(model) => println!("\n{}", model.render_summary().trim_end()),
+        Err(e) => {
+            eprintln!("dovetail relate: {db}: scoring table roles: {e}");
+            return ExitCode::FAILURE;
+        }
+    }
     ExitCode::SUCCESS
 }
 

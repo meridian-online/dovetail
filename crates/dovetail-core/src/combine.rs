@@ -15,9 +15,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::evidence::{
-    self, column_evidence, edge_evidence, list_columns, measure_counts, measure_table,
-    parent_key_shaped, table_evidence_carrying, write_column_evidence, ColumnEvidence, Dataset,
-    EdgeEvidence, EvidenceError, Pass, Session, SnapshotKey, SESSION_PREFIX, VIEW_PREFIX,
+    self, column_evidence, edge_evidence, edge_evidence_with, list_columns, measure_counts,
+    measure_table, parent_key_shaped, table_evidence_carrying, write_column_evidence,
+    ColumnEvidence, Dataset, EdgeEvidence, EvidenceError, Pass, Relation, Session, SnapshotKey,
+    SESSION_PREFIX, VIEW_PREFIX,
 };
 use crate::finetype_ext::TypingSource;
 use crate::relate::{edge_from_evidence, needs_key_shape, quote, type_family, Edge, EdgeStatus};
@@ -736,19 +737,41 @@ pub struct CombinedRun {
 /// joins and tables over the combined datasets in place of their parts. Edge
 /// rows are written under [`Pass::Combined`].
 pub fn run_combined(s: &Session) -> Result<CombinedRun, EvidenceError> {
-    run_combined_with(s, &column_evidence(s)?)
+    let cols = column_evidence(s)?;
+    let combinations = find_combinations(s, &cols)?;
+    run_combined_with(s, &cols, combinations, None)
 }
 
-/// [`run_combined`] from column evidence the caller already has, so a column
-/// measured and typed for the descriptor is not typed again.
+/// [`run_combined`] from column evidence and combinations the caller already
+/// has, so no column is typed twice. With `parts`, the parts pass's edge
+/// rows, a pair of untouched tables is taken from them rather than measured
+/// again: only pairs that involve a combination's view are measured.
 pub fn run_combined_with(
     s: &Session,
     cols: &[ColumnEvidence],
+    mut combinations: Vec<Combination>,
+    parts: Option<&[EdgeEvidence]>,
 ) -> Result<CombinedRun, EvidenceError> {
-    let mut combinations = find_combinations(s, cols)?;
     let datasets = create_views(s, &combinations)?;
     let columns = view_column_evidence(s, &combinations, cols)?;
-    let measured = edge_evidence(s, &columns, &datasets, Pass::Combined)?;
+    let measured = match parts {
+        None => edge_evidence(s, &columns, &datasets, Pass::Combined)?,
+        Some(parts) => {
+            let kept: BTreeSet<&str> = datasets
+                .iter()
+                .filter(|d| d.relation == Relation::Source)
+                .map(|d| d.name.as_str())
+                .collect();
+            let untouched =
+                |child: &str, parent: &str| kept.contains(child) && kept.contains(parent);
+            let reused = parts
+                .iter()
+                .filter(|e| untouched(&e.child.table, &e.parent.table))
+                .cloned()
+                .collect();
+            edge_evidence_with(s, &columns, &datasets, Pass::Combined, &untouched, reused)?
+        }
+    };
     let (edges, carried) =
         carry_snapshot_keys(s, &mut combinations, &datasets, &columns, &measured)?;
     let tables = table_evidence_carrying(s, &columns, &edges, &carried, &datasets)?;

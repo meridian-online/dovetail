@@ -292,7 +292,8 @@ pub fn discover_with_types(conn: &Connection, types: &SemanticTypes) -> duckdb::
     // Fully qualified, so no analyst table is shadowed by the query's own CTE.
     let catalog = current_database(conn)?;
     let relation = |table: &str| format!("{}.main.{}", quote(&catalog), quote(table));
-    let measured = evidence::measure_edges(conn, &relation, &cols, &tables).map_err(into_duckdb)?;
+    let measured = evidence::measure_edges(conn, &relation, &cols, &tables, &|_, _| false)
+        .map_err(into_duckdb)?;
     Ok(measured.iter().map(edge_from_evidence).collect())
 }
 
@@ -308,6 +309,8 @@ pub fn discover_path(path: &str) -> duckdb::Result<Vec<Edge>> {
 pub struct RelateRun {
     pub edges: Vec<Edge>,
     pub descriptor: serde_json::Value,
+    /// The evidence rows `edges` were scored from, in the same order.
+    pub measured: Vec<EdgeEvidence>,
 }
 
 /// Attach the DuckDB at `path` read-only, type its columns with the best typing
@@ -334,8 +337,21 @@ pub fn run_with(
     cols: &[ColumnEvidence],
     tables: &[String],
 ) -> Result<RelateRun, EvidenceError> {
+    run_with_skipping(s, cols, tables, &|_, _| false)
+}
+
+/// [`run_with`], where no pair of tables `skip(child, parent)` names is a
+/// candidate: parts of one combination, which hold one kind of thing and do
+/// not refer to each other.
+pub fn run_with_skipping(
+    s: &Session,
+    cols: &[ColumnEvidence],
+    tables: &[String],
+    skip: &dyn Fn(&str, &str) -> bool,
+) -> Result<RelateRun, EvidenceError> {
     let datasets = evidence::Dataset::sources(tables);
-    let measured = evidence::edge_evidence(s, cols, &datasets, evidence::Pass::Parts)?;
+    let measured =
+        evidence::edge_evidence_with(s, cols, &datasets, evidence::Pass::Parts, skip, Vec::new())?;
     let edges: Vec<Edge> = measured.iter().map(edge_from_evidence).collect();
     let described: Vec<DescribedColumn> = cols
         .iter()
@@ -348,7 +364,11 @@ pub fn run_with(
         })
         .collect();
     let descriptor = descriptor(&described, &edges, s.source());
-    Ok(RelateRun { edges, descriptor })
+    Ok(RelateRun {
+        edges,
+        descriptor,
+        measured,
+    })
 }
 
 /// Each table's name once, in the order its columns first appear.
