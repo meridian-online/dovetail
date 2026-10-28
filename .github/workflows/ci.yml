@@ -73,6 +73,23 @@ jobs:
       - name: test
         run: cargo test --workspace
 
+      # The run above has no FineType extension or model, so the role eval's
+      # tier 1 runs floor-only there and its profiled tests skip. This step
+      # fetches the pinned release's extension and the model it names (the
+      # release assets from GitHub, the weights from the model registry at a
+      # pinned revision, each checked against its published digest), and runs
+      # tier 1 profiled: exact against the retail answer key, and matching the
+      # committed tests/role-corpus/RESULTS.md. DOVETAIL_REQUIRE_PROFILED turns
+      # a skip into a failure, so this step cannot pass without the profile.
+      # The test binary is the one the step above built; nothing recompiles.
+      - name: role eval, tier 1 profiled
+        env:
+          DOVETAIL_REQUIRE_PROFILED: "1"
+        run: |
+          scripts/fetch-finetype.sh "$RUNNER_TEMP/finetype" > "$RUNNER_TEMP/finetype.env"
+          source "$RUNNER_TEMP/finetype.env"
+          cargo test -p dovetail-core --test role_eval_harness tier1_
+
       # The default-features run above does not compile the
       # `#[cfg(not(feature = "finetype-guided"))]` fallbacks in
       # crates/dovetail/src/main.rs, so nothing so far has checked the
