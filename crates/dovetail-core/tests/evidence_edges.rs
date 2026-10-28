@@ -322,6 +322,25 @@ fn fixed_width_prices_are_not_key_shaped_as_decimal_or_text() {
 }
 
 #[test]
+fn formatted_text_prices_are_not_key_shaped() {
+    let price = "CAST(CAST(10 + i * 3.17 AS DECIMAL(9, 2)) AS VARCHAR)";
+    for values in [
+        format!("'$' || {price}"),
+        format!("'£' || {price}"),
+        "'1,' || CAST(CAST(100 + i * 3.17 AS DECIMAL(9, 2)) AS VARCHAR)".to_string(),
+        format!("'(' || {price} || ')'"),
+    ] {
+        let e = untyped_exact_name(&values);
+        assert!(!e.parent_key_shaped, "{values}");
+        assert_ne!(
+            edge_from_evidence(&e).status,
+            EdgeStatus::Accepted,
+            "{values}"
+        );
+    }
+}
+
+#[test]
 fn unique_untyped_bigint_numbers_are_key_shaped() {
     let e = untyped_exact_name("CAST(1000 + i AS BIGINT)");
     assert!(e.parent_key_shaped);

@@ -406,9 +406,9 @@ pub struct EdgeEvidence {
     pub semantic_similarity: f64,
     pub child_label: Option<String>,
     pub parent_label: Option<String>,
-    /// Whether the parent's values look like keys (no whitespace, and at
-    /// least 90% share one length or one pattern of letters, digits and
-    /// separators). Measured only for an untyped parent that could earn
+    /// Whether the parent's values look like keys (at least 90% are made of
+    /// letters, digits and `- _ / . :` and share one length or one pattern;
+    /// see `parent_key_shaped`). Measured only for an untyped parent that could earn
     /// [`relate::exact_name_key_credit`] otherwise; `false` elsewhere.
     pub parent_key_shaped: bool,
 }
@@ -553,11 +553,15 @@ pub(crate) fn measure_edges(
     Ok(edges)
 }
 
-/// Whether a text or integer column's non-null values look like keys: none
-/// holds whitespace, and at least 90% share one length or, among values with
-/// a letter, one pattern (each letter is `A`, a run of digits `9`). A value
-/// that is a plain decimal (`12.50`) counts towards neither share, so a
-/// column of prices is not key-shaped. An empty column is not key-shaped.
+/// Whether a text or integer column's non-null values look like keys. A value
+/// is key-like when it holds only letters, digits and the separators
+/// `- _ / . :`, starts with a letter or digit, and either holds a letter or is
+/// all digits; so `BEV-12` and `10042` are key-like and `12.50`, `$12.50`,
+/// `1,234.50`, `(12.50)` and `New York` are not. The column is key-shaped when
+/// at least 90% of all its non-null values are key-like and share one length,
+/// or are key-like and share one pattern (each letter is `A`, a run of digits
+/// `9`); a value that is not key-like counts against both shares. An empty
+/// column is not key-shaped.
 fn parent_key_shaped(
     conn: &Connection,
     relation: &str,
@@ -566,20 +570,19 @@ fn parent_key_shaped(
     let c = quote(column);
     let sql = format!(
         "WITH v AS (SELECT CAST({c} AS VARCHAR) AS s FROM {relation} WHERE {c} IS NOT NULL),
+              k AS (SELECT s FROM v
+                    WHERE regexp_full_match(s, '[A-Za-z0-9][A-Za-z0-9_/.:-]*')
+                      AND (regexp_matches(s, '[A-Za-z]') OR regexp_full_match(s, '[0-9]+'))),
               p AS (SELECT regexp_replace(regexp_replace(s, '[A-Za-z]', 'A', 'g'),
                                           '[0-9]+', '9', 'g') AS pat,
-                         regexp_matches(s, '[A-Za-z]') AS lettered, length(s) AS len,
-                         regexp_matches(s, '^-?[0-9]+\\.[0-9]+$') AS dec FROM v)
+                         length(s) AS len FROM k)
          SELECT (SELECT count(*) FROM v),
-                (SELECT count(*) FROM v WHERE regexp_matches(s, '\\s')),
-                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p WHERE NOT dec GROUP BY len)), 0),
-                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p WHERE lettered AND NOT dec GROUP BY pat)), 0)"
+                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p GROUP BY len)), 0),
+                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p GROUP BY pat)), 0)"
     );
-    let (total, spaced, same_len, same_pat): (i64, i64, i64, i64) =
-        conn.query_row(&sql, [], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-        })?;
-    Ok(total > 0 && spaced == 0 && same_len.max(same_pat) * 10 >= total * 9)
+    let (total, same_len, same_pat): (i64, i64, i64) =
+        conn.query_row(&sql, [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+    Ok(total > 0 && same_len.max(same_pat) * 10 >= total * 9)
 }
 
 fn column_ref(c: &ColumnEvidence) -> ColumnRef {
