@@ -105,3 +105,88 @@ fn a_small_count_inside_a_dense_key_is_not_a_self_reference() {
         call.evidence
     );
 }
+
+#[test]
+fn self_reference_needs_a_self_pointer_name() {
+    // Values inside the key, and names that share only the table's prefix.
+    for (sql, table) in [
+        (
+            "CREATE TABLE orders AS SELECT CAST(i AS INTEGER) AS order_id,
+                 CAST(i % 3 + 1 AS INTEGER) AS order_priority FROM range(1, 41) t(i);",
+            "orders",
+        ),
+        (
+            "CREATE TABLE stores AS SELECT CAST(i AS INTEGER) AS store_id,
+                 CAST(41 - i AS INTEGER) AS store_number FROM range(1, 41) t(i);",
+            "stores",
+        ),
+    ] {
+        let (t, _) = measure(sql, table);
+        assert!(t.self_references.is_empty(), "{table}: {t:#?}");
+    }
+    let sql = "CREATE TABLE categories AS SELECT CAST(i AS INTEGER) AS category_id,
+                   CASE WHEN i <= 3 THEN NULL ELSE CAST(i % 3 + 1 AS INTEGER) END
+                       AS parent_category_id
+               FROM range(1, 13) t(i);";
+    let (t, _) = measure(sql, "categories");
+    assert_eq!(t.self_references, vec!["parent_category_id"]);
+}
+
+#[test]
+fn table_evidence_writes_without_extensions() {
+    // Writing the evidence must not need an extension DuckDB would fetch.
+    let sql = "CREATE TABLE employees AS SELECT CAST(i AS INTEGER) AS employee_id,
+                   'Name ' || i AS last_name,
+                   CASE WHEN i = 1 THEN NULL ELSE 1 END AS reports_to,
+                   DATE '2020-01-01' + CAST(i AS INTEGER) AS hire_date
+               FROM range(1, 9) t(i);
+               CREATE TABLE empty AS SELECT 1 AS id WHERE false;";
+    let s = Session::from_sql(sql, TypingRequest::Floor).unwrap();
+    s.conn()
+        .execute_batch(
+            "SET autoinstall_known_extensions = false; SET autoload_known_extensions = false;",
+        )
+        .unwrap();
+    let cols = column_evidence(&s).unwrap();
+    let tables = vec!["employees".to_string(), "empty".to_string()];
+    let run = run_with(&s, &cols, &tables).unwrap();
+    table_evidence(&s, &cols, &run.edges, &tables).unwrap();
+    let (key, refs, times, constant): (String, String, String, Option<String>) = s
+        .conn()
+        .query_row(
+            "SELECT CAST(\"key\" AS VARCHAR), CAST(self_references AS VARCHAR),
+                    CAST(time_columns AS VARCHAR), constant_date
+             FROM memory.main.table_evidence WHERE \"table\" = 'employees'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .unwrap();
+    assert_eq!(key, "[employee_id]");
+    assert_eq!(refs, "[reports_to]");
+    assert!(times.contains("hire_date"), "{times}");
+    assert_eq!(constant, None);
+    let empty_key: String = s
+        .conn()
+        .query_row(
+            "SELECT CAST(\"key\" AS VARCHAR) FROM memory.main.table_evidence
+             WHERE \"table\" = 'empty'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(empty_key, "[]");
+    // The guard means something only while JSON is not built in.
+    let json_loaded: bool = s
+        .conn()
+        .query_row(
+            "SELECT coalesce(bool_or(loaded), false) FROM duckdb_extensions()
+             WHERE extension_name = 'json'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(
+        !json_loaded,
+        "json is loaded, so this test no longer guards it"
+    );
+}
