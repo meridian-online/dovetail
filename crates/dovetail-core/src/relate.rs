@@ -334,7 +334,8 @@ pub fn run_with(
     cols: &[ColumnEvidence],
     tables: &[String],
 ) -> Result<RelateRun, EvidenceError> {
-    let measured = evidence::edge_evidence(s, cols, tables)?;
+    let datasets = evidence::Dataset::sources(tables);
+    let measured = evidence::edge_evidence(s, cols, &datasets, evidence::Pass::Parts)?;
     let edges: Vec<Edge> = measured.iter().map(edge_from_evidence).collect();
     let described: Vec<DescribedColumn> = cols
         .iter()

@@ -5,6 +5,7 @@
 //! The core is pure Rust and holds all behaviour; the `dovetail` CLI is a thin
 //! layer over it.
 
+pub mod combine;
 pub mod datapackage;
 pub mod detect;
 pub mod emit;

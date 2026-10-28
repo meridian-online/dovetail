@@ -19,7 +19,7 @@ use duckdb::Connection;
 
 use crate::finetype_ext::{self, TypingRequest, TypingSource};
 use crate::relate::{self, quote, type_family, ColumnRef, Edge, FIELD_SAMPLE_N};
-use crate::roles::{points_at, TableEvidence, TimeColumn};
+use crate::roles::{points_at, CarriedKey, TableEvidence, TimeColumn};
 
 /// How a session's queries name the analyst's tables.
 pub(crate) const SESSION_PREFIX: &str = "src.main.";
@@ -453,45 +453,130 @@ pub struct EdgeEvidence {
     pub parent_key_shaped: bool,
 }
 
-/// The `pass` of the descriptor's run over the analyst's own tables.
-const PASS_PARTS: &str = "parts";
-/// The `pass` of a run that measures at least one combined view.
-const PASS_COMBINED: &str = "combined";
+/// Which run a set of edge evidence rows belongs to, kept apart in
+/// `memory.edge_evidence` by its `pass` column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pass {
+    /// The analyst's own tables, as the descriptor describes them.
+    Parts,
+    /// The combined datasets in place of their parts, beside the untouched
+    /// tables.
+    Combined,
+}
 
-/// Measure every candidate join among `tables` and write the rows to
-/// `memory.edge_evidence` under this run's pass, replacing that pass's rows.
-/// A name in `tables` that is a view in the session's `memory` catalog is
-/// read from there; any other is a table of `src`.
+impl Pass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Pass::Parts => "parts",
+            Pass::Combined => "combined",
+        }
+    }
+}
+
+/// Where a dataset's rows are read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Relation {
+    /// A table of the analyst's database, `src.main`.
+    Source,
+    /// A view dovetail created in its own `memory.main`.
+    View,
+}
+
+/// The key a snapshot combination is measured with: its parts' entity key
+/// plus the token that tells the parts apart.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SnapshotKey {
+    pub entity_key: Vec<String>,
+    pub token: String,
+}
+
+/// A table or view to measure, named with where it is read from, so a view
+/// never stands in for a table of the same name.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Dataset {
+    pub name: String,
+    pub relation: Relation,
+    /// Set for a snapshot combination's view: its key is fixed rather than
+    /// searched for, and its token is its one non-audit time column.
+    pub snapshot: Option<SnapshotKey>,
+}
+
+impl Dataset {
+    /// A table of the analyst's database.
+    pub fn source(name: &str) -> Dataset {
+        Dataset {
+            name: name.to_string(),
+            relation: Relation::Source,
+            snapshot: None,
+        }
+    }
+
+    /// A view in dovetail's own catalog.
+    pub fn view(name: &str) -> Dataset {
+        Dataset {
+            name: name.to_string(),
+            relation: Relation::View,
+            snapshot: None,
+        }
+    }
+
+    /// Each of `names` as a table of the analyst's database.
+    pub fn sources(names: &[String]) -> Vec<Dataset> {
+        names.iter().map(|n| Dataset::source(n)).collect()
+    }
+
+    /// The fully qualified relation a session reads.
+    pub fn relation_sql(&self) -> String {
+        match self.relation {
+            Relation::Source => format!("{SESSION_PREFIX}{}", quote(&self.name)),
+            Relation::View => format!("{VIEW_PREFIX}{}", quote(&self.name)),
+        }
+    }
+}
+
+/// How a session's queries name dovetail's own views.
+pub(crate) const VIEW_PREFIX: &str = "memory.main.";
+
+/// The datasets' names, after checking that no name is listed twice: a name
+/// is what evidence rows and edges carry, so two datasets of one name would
+/// read as one.
+fn dataset_names(datasets: &[Dataset]) -> Result<Vec<String>, EvidenceError> {
+    let mut seen = BTreeSet::new();
+    for d in datasets {
+        if !seen.insert(d.name.as_str()) {
+            return Err(EvidenceError::Session(format!(
+                "the dataset {} is listed twice",
+                d.name
+            )));
+        }
+    }
+    Ok(datasets.iter().map(|d| d.name.clone()).collect())
+}
+
+/// Render a dataset's name as the relation to read, for the datasets listed.
+fn relation_of(datasets: &[Dataset]) -> impl Fn(&str) -> String + '_ {
+    move |table: &str| {
+        datasets.iter().find(|d| d.name == table).map_or_else(
+            // Only listed datasets are measured; an unlisted name is read
+            // as the analyst's table it names.
+            || format!("{SESSION_PREFIX}{}", quote(table)),
+            Dataset::relation_sql,
+        )
+    }
+}
+
+/// Measure every candidate join among `datasets` and write the rows to
+/// `memory.edge_evidence` under `pass`, replacing that pass's rows.
 pub fn edge_evidence(
     s: &Session,
     cols: &[ColumnEvidence],
-    tables: &[String],
+    datasets: &[Dataset],
+    pass: Pass,
 ) -> Result<Vec<EdgeEvidence>, EvidenceError> {
-    let views = memory_views(s.conn())?;
-    let relation = |table: &str| {
-        if views.contains(table) {
-            format!("memory.main.{}", quote(table))
-        } else {
-            format!("{SESSION_PREFIX}{}", quote(table))
-        }
-    };
-    let edges = measure_edges(s.conn(), &relation, cols, tables)?;
-    let pass = if tables.iter().any(|t| views.contains(t)) {
-        PASS_COMBINED
-    } else {
-        PASS_PARTS
-    };
-    write_edge_evidence(s, pass, &edges)?;
+    let tables = dataset_names(datasets)?;
+    let edges = measure_edges(s.conn(), &relation_of(datasets), cols, &tables)?;
+    write_edge_evidence(s, pass.as_str(), &edges)?;
     Ok(edges)
-}
-
-fn memory_views(conn: &Connection) -> Result<std::collections::BTreeSet<String>, EvidenceError> {
-    let mut stmt = conn.prepare(
-        "SELECT view_name FROM duckdb_views()
-         WHERE database_name = 'memory' AND schema_name = 'main' AND NOT internal",
-    )?;
-    let views = stmt.query_map([], |r| r.get(0))?;
-    Ok(views.collect::<duckdb::Result<_>>()?)
 }
 
 /// The candidate joins among `tables`, measured, in child then parent column
@@ -604,7 +689,7 @@ pub(crate) fn measure_edges(
 /// since every all-digit value has the pattern `9`; all-digit values count
 /// towards the length share. A value that is not key-like counts against both
 /// shares. An empty column is not key-shaped.
-fn parent_key_shaped(
+pub(crate) fn parent_key_shaped(
     conn: &Connection,
     relation: &str,
     column: &str,
@@ -739,53 +824,78 @@ fn is_time_column(c: &ColumnEvidence) -> bool {
             .is_some_and(|l| l.starts_with("datetime."))
 }
 
-/// Measure each of `tables`: its rows, its key, its time columns and how they
-/// vary within the first pointer out, and its label and attribute columns.
-/// `edges` give the pointers, as [`crate::roles::points_at`] reads them. A name
-/// that is a view in the session's `memory` catalog is read from there. The
-/// rows are written to `memory.table_evidence`, replacing what was there.
+/// Measure each of `datasets`: its rows, its key, its time columns and how
+/// they vary within the first pointer out, and its label and attribute
+/// columns. `edges` give the pointers, as [`crate::roles::points_at`] reads
+/// them. The rows are written to `memory.table_evidence`, replacing what was
+/// there.
 pub fn table_evidence(
     s: &Session,
     cols: &[ColumnEvidence],
     edges: &[Edge],
-    tables: &[String],
+    datasets: &[Dataset],
 ) -> Result<Vec<TableEvidence>, EvidenceError> {
-    let views = memory_views(s.conn())?;
-    let relation = |table: &str| {
-        if views.contains(table) {
-            format!("memory.main.{}", quote(table))
-        } else {
-            format!("{SESSION_PREFIX}{}", quote(table))
-        }
-    };
+    table_evidence_carrying(s, cols, edges, &[], datasets)
+}
+
+/// [`table_evidence`], with each [`CarriedKey`]'s column a pointer out of
+/// its table as an edge's is.
+pub fn table_evidence_carrying(
+    s: &Session,
+    cols: &[ColumnEvidence],
+    edges: &[Edge],
+    carried: &[CarriedKey],
+    datasets: &[Dataset],
+) -> Result<Vec<TableEvidence>, EvidenceError> {
+    dataset_names(datasets)?;
     let floor = matches!(s.typing, TypingSource::Floor { .. });
-    let out = tables
+    let out = datasets
         .iter()
-        .map(|t| measure_table(s.conn(), &relation, cols, edges, t, floor))
+        .map(|d| measure_table(s.conn(), cols, edges, carried, d, floor))
         .collect::<Result<Vec<_>, _>>()?;
-    write_table_evidence(s, &out, edges)?;
+    write_table_evidence(s, &out, edges, carried)?;
     Ok(out)
 }
 
-/// One table's evidence. `floor` takes label columns by name as well as label.
+/// The table's pointers out: the child columns of the edges that point at
+/// another table, and of the keys it carries.
+fn pointer_columns<'a>(
+    edges: &'a [Edge],
+    carried: &'a [CarriedKey],
+    table: &str,
+) -> BTreeSet<&'a str> {
+    points_at(edges)
+        .filter(|e| e.child.table == table && e.parent.table != table)
+        .map(|e| e.child.column.as_str())
+        .chain(
+            carried
+                .iter()
+                .filter(|c| c.child.table == table && c.snapshot != table)
+                .map(|c| c.child.column.as_str()),
+        )
+        .collect()
+}
+
+/// One dataset's evidence. `floor` takes label columns by name as well as
+/// label. A snapshot's key is the dataset's key as given, and its token is the
+/// one non-audit time column kept.
 pub(crate) fn measure_table(
     conn: &Connection,
-    relation: &dyn Fn(&str) -> String,
     cols: &[ColumnEvidence],
     edges: &[Edge],
-    table: &str,
+    carried: &[CarriedKey],
+    dataset: &Dataset,
     floor: bool,
 ) -> Result<TableEvidence, EvidenceError> {
+    let table = dataset.name.as_str();
+    let snapshot = dataset.snapshot.as_ref();
     let tcols: Vec<&ColumnEvidence> = cols.iter().filter(|c| c.table == table).collect();
-    let rel = relation(table);
+    let rel = dataset.relation_sql();
     let rows = match tcols.first() {
         Some(c) => c.rows,
         None => conn.query_row(&format!("SELECT count(*) FROM {rel}"), [], |r| r.get(0))?,
     };
-    let pointers: BTreeSet<&str> = points_at(edges)
-        .filter(|e| e.child.table == table && e.parent.table != table)
-        .map(|e| e.child.column.as_str())
-        .collect();
+    let pointers: BTreeSet<&str> = pointer_columns(edges, carried, table);
     let pointed_at: BTreeSet<&str> = points_at(edges)
         .filter(|e| e.parent.table == table && e.child.table != table)
         .map(|e| e.parent.column.as_str())
@@ -797,15 +907,23 @@ pub(crate) fn measure_table(
             .is_some_and(crate::identifiers::is_identifier_leaf)
     };
 
-    let key = find_key(
-        conn,
-        &rel,
-        &tcols,
-        &pointers,
-        &pointed_at,
-        &identifier,
-        rows,
-    )?;
+    let key = match snapshot {
+        Some(k) => k
+            .entity_key
+            .iter()
+            .chain(std::iter::once(&k.token))
+            .cloned()
+            .collect(),
+        None => find_key(
+            conn,
+            &rel,
+            &tcols,
+            &pointers,
+            &pointed_at,
+            &identifier,
+            rows,
+        )?,
+    };
     let key_is_identifier = !key.is_empty()
         && key
             .iter()
@@ -818,10 +936,14 @@ pub(crate) fn measure_table(
 
     // The first pointer out, in column order, is the parent a time varies within.
     let first_pointer = tcols.iter().find(|c| pointers.contains(c.column.as_str()));
+    // A snapshot's token is its as-of time, and its only non-audit one.
     let times: Vec<&ColumnEvidence> = tcols
         .iter()
         .copied()
-        .filter(|c| is_time_column(c))
+        .filter(|c| match snapshot {
+            Some(k) => c.column == k.token || (is_time_column(c) && c.audit_name),
+            None => is_time_column(c),
+        })
         .collect();
     let varies = match (first_pointer, times.is_empty()) {
         (Some(p), false) => varies_within(conn, &rel, &p.column, &times)?,
@@ -1037,12 +1159,14 @@ fn varies_within(
 }
 
 /// Replace `memory.table_evidence` with `rows`, one per table, with the pointer
-/// columns `edges` give each. Every value is a bound parameter; each list is a
-/// `list_value` of parameters built to its length, so no extension is needed.
+/// columns `edges` and `carried` give each. Every value is a bound parameter;
+/// each list is a `list_value` of parameters built to its length, so no
+/// extension is needed.
 fn write_table_evidence(
     s: &Session,
     rows: &[TableEvidence],
     edges: &[Edge],
+    carried: &[CarriedKey],
 ) -> Result<(), EvidenceError> {
     use duckdb::types::Value;
     const TIME: &str = "STRUCT(name VARCHAR, fill_rate DOUBLE, \"distinct\" BIGINT, \
@@ -1067,14 +1191,11 @@ fn write_table_evidence(
         list(items.len(), "?", "VARCHAR[]")
     };
     for t in rows {
+        let pointing = pointer_columns(edges, carried, &t.name);
         let pointers: Vec<String> = t
             .columns
             .iter()
-            .filter(|c| {
-                points_at(edges).any(|e| {
-                    e.child.table == t.name && e.parent.table != t.name && &e.child.column == *c
-                })
-            })
+            .filter(|c| pointing.contains(c.as_str()))
             .cloned()
             .collect();
         let mut params = vec![Value::Text(t.name.clone()), Value::BigInt(t.rows)];

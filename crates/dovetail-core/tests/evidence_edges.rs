@@ -6,7 +6,9 @@
 
 use std::path::{Path, PathBuf};
 
-use dovetail_core::evidence::{column_evidence, edge_evidence, EdgeEvidence, Session};
+use dovetail_core::evidence::{
+    column_evidence, edge_evidence, Dataset, EdgeEvidence, Pass, Session,
+};
 use dovetail_core::finetype_ext::TypingRequest;
 use dovetail_core::relate::{discover, edge_from_evidence, run_session, ColumnRef, EdgeStatus};
 
@@ -56,7 +58,8 @@ fn measured(build_sql: &str) -> (Session, Vec<EdgeEvidence>) {
     let cols = column_evidence(&s).expect("column evidence");
     let mut tables: Vec<String> = cols.iter().map(|c| c.table.clone()).collect();
     tables.dedup();
-    let edges = edge_evidence(&s, &cols, &tables).expect("edge evidence");
+    let edges =
+        edge_evidence(&s, &cols, &Dataset::sources(&tables), Pass::Parts).expect("edge evidence");
     (s, edges)
 }
 
@@ -267,7 +270,7 @@ fn key_shape_collapses_runs_so_a_varying_length_still_passes() {
     .unwrap();
     let cols = column_evidence(&s).unwrap();
     let tables = vec!["items".to_string(), "lines".to_string()];
-    let edges = edge_evidence(&s, &cols, &tables).unwrap();
+    let edges = edge_evidence(&s, &cols, &Dataset::sources(&tables), Pass::Parts).unwrap();
     let e = find(&edges, "lines.sku", "items.sku");
     assert!(e.parent_key_shaped);
     assert_eq!(edge_from_evidence(e).status, EdgeStatus::Accepted);
@@ -287,7 +290,7 @@ fn untyped_exact_name(values: &str) -> EdgeEvidence {
     .unwrap();
     let cols = column_evidence(&s).unwrap();
     let tables = vec!["parents".to_string(), "kids".to_string()];
-    let edges = edge_evidence(&s, &cols, &tables).unwrap();
+    let edges = edge_evidence(&s, &cols, &Dataset::sources(&tables), Pass::Parts).unwrap();
     find(&edges, "kids.v", "parents.v").clone()
 }
 

@@ -1,7 +1,7 @@
 //! `table_evidence` on small tables built in SQL, under the floor: NULLs in
 //! the pointer or time, as-of dates, and self-references.
 
-use dovetail_core::evidence::{column_evidence, table_evidence, Session};
+use dovetail_core::evidence::{column_evidence, table_evidence, Dataset, Session};
 use dovetail_core::finetype_ext::TypingRequest;
 use dovetail_core::relate::run_with;
 use dovetail_core::roles::{points_at, score_table, Role, RoleCall, TableEvidence};
@@ -13,7 +13,7 @@ fn measure(sql: &str, table: &str) -> (TableEvidence, RoleCall) {
     let mut all: Vec<String> = cols.iter().map(|c| c.table.clone()).collect();
     all.dedup();
     let run = run_with(&s, &cols, &all).unwrap();
-    let t = table_evidence(&s, &cols, &run.edges, &[table.to_string()])
+    let t = table_evidence(&s, &cols, &run.edges, &[Dataset::source(table)])
         .unwrap()
         .remove(0);
     let call = score_table(&t, &run.edges, &[], &s.typing);
@@ -41,7 +41,7 @@ fn nulls_do_not_make_a_time_vary_within_its_parent() {
         points_at(&run.edges).any(|e| e.child.qualified() == "visits.user_id"),
         "the test needs visits.user_id as a pointer"
     );
-    let t = table_evidence(&s, &cols, &run.edges, &["visits".to_string()])
+    let t = table_evidence(&s, &cols, &run.edges, &[Dataset::source("visits")])
         .unwrap()
         .remove(0);
     assert_eq!(t.time_columns.len(), 1);
@@ -158,7 +158,7 @@ fn table_evidence_writes_without_extensions() {
     let cols = column_evidence(&s).unwrap();
     let tables = vec!["employees".to_string(), "empty".to_string()];
     let run = run_with(&s, &cols, &tables).unwrap();
-    table_evidence(&s, &cols, &run.edges, &tables).unwrap();
+    table_evidence(&s, &cols, &run.edges, &Dataset::sources(&tables)).unwrap();
     let (key, refs, times, constant): (String, String, String, Option<String>) = s
         .conn()
         .query_row(

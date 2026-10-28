@@ -20,11 +20,13 @@ CREATE TABLE categories AS SELECT
     'Category ' || CAST(i AS VARCHAR) AS name
 FROM range(1, 9) t(i);
 
+-- Each product's supplier is in one of the two supplier tables below.
 CREATE TABLE products AS SELECT
     'BEV-' || lpad(CAST(i AS VARCHAR), 3, '0') AS sku,
     'Product ' || CAST(i AS VARCHAR) AS name,
     CAST((i % 8) + 1 AS INTEGER) AS category_id,
-    CAST(round(2 + (i % 37) * 0.75, 2) AS DOUBLE) AS unit_price
+    CAST(round(2 + (i % 37) * 0.75, 2) AS DOUBLE) AS unit_price,
+    CAST(CASE WHEN i % 2 = 0 THEN i % 30 + 1 ELSE i % 30 + 101 END AS INTEGER) AS supplier_id
 FROM range(1, 121) t(i);
 
 CREATE TABLE transactions AS SELECT
@@ -63,12 +65,12 @@ FROM range(1, 21) t(i);
 CREATE TABLE suppliers_north AS SELECT
     CAST(i AS INTEGER) AS supplier_id,
     'North Supplier ' || CAST(i AS VARCHAR) AS name,
-    'UK' AS country
+    (['GB', 'IE', 'NL'])[i % 3 + 1] AS country
 FROM range(1, 31) t(i);
 CREATE TABLE suppliers_south AS SELECT
     CAST(i AS INTEGER) AS supplier_id,
     'South Supplier ' || CAST(i AS VARCHAR) AS name,
-    'ES' AS country
+    (['ES', 'PT', 'IT'])[i % 3 + 1] AS country
 FROM range(101, 131) t(i);
 
 -- Snapshot pair: the same skus priced in two years.

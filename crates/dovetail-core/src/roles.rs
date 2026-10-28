@@ -397,6 +397,19 @@ pub fn score_table(
         ));
     }
     evidence.extend(pointers.iter().map(|p| p.sentence.clone()));
+    evidence.extend(
+        carried
+            .iter()
+            .filter(|c| c.snapshot == t.name && c.child.table != t.name)
+            .map(|c| {
+                format!(
+                    "{} carries the key {} of this snapshot, {} overlap",
+                    c.child.qualified(),
+                    c.key,
+                    percent(c.overlap)
+                )
+            }),
+    );
     if let [key] = t.key.as_slice() {
         evidence.extend(
             t.self_references

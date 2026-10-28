@@ -4,7 +4,8 @@
 
 use std::path::{Path, PathBuf};
 
-use dovetail_core::evidence::{column_evidence, table_evidence, Session};
+use dovetail_core::combine::{run_combined, CombinedRun};
+use dovetail_core::evidence::{column_evidence, table_evidence, Dataset, Session};
 use dovetail_core::finetype_ext::{TypingRequest, TypingSource};
 use dovetail_core::relate::{run_session, run_with, Edge, EdgeStatus};
 use dovetail_core::role_key::{load_answer_key, CombinationKind, Role};
@@ -225,7 +226,7 @@ fn score_stand_ins(typing: TypingRequest) -> Scored {
     all.dedup();
     let run = run_with(&s, &cols, &all).unwrap();
     let tables: Vec<String> = STAND_INS.iter().map(|t| t.to_string()).collect();
-    let evidence = table_evidence(&s, &cols, &run.edges, &tables).unwrap();
+    let evidence = table_evidence(&s, &cols, &run.edges, &Dataset::sources(&tables)).unwrap();
     let written: Vec<String> = s
         .conn()
         .prepare("SELECT \"table\" FROM memory.main.table_evidence ORDER BY \"table\"")
@@ -254,7 +255,7 @@ fn retail_roles_match_answer_key() {
         eprintln!("skipping: FineType's profile is unavailable: {typing:?}");
         return;
     }
-    assert_roles_match_key(&calls);
+    assert_roles_match_key(&calls, STAND_INS.len());
 }
 
 /// The proposed folds are the answer key's.
@@ -290,9 +291,9 @@ fn retail_folds_match_answer_key() {
     assert_folds_match_key(&calls, &edges);
 }
 
-/// Each call's role is the answer key's; on failure, every mismatch with its
-/// scores, evidence and table.
-fn assert_roles_match_key(calls: &[(TableEvidence, RoleCall)]) {
+/// Each call's role is the answer key's, and there are `n` calls; on
+/// failure, every mismatch with its scores, evidence and table.
+fn assert_roles_match_key(calls: &[(TableEvidence, RoleCall)], n: usize) {
     let key = load_answer_key(&fixture_dir().join("answer-key.json")).unwrap();
     let mut wrong = Vec::new();
     for (t, call) in calls {
@@ -306,7 +307,7 @@ fn assert_roles_match_key(calls: &[(TableEvidence, RoleCall)]) {
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
-    assert_eq!(calls.len(), STAND_INS.len());
+    assert_eq!(calls.len(), n);
 }
 
 #[test]
@@ -322,8 +323,16 @@ fn retail_roles_floor_recorded() {
         );
     }
     // CI runs only the floor, so the floor pins the roles too.
-    assert_roles_match_key(&calls);
+    assert_roles_match_key(&calls, STAND_INS.len());
     assert_folds_match_key(&calls, &edges);
+
+    // And the combinations, with every table of the answer key scored over
+    // the combined datasets in place of their parts.
+    let (typing, run, calls) = score_combined(TypingRequest::Floor);
+    assert!(matches!(typing, TypingSource::Floor { .. }));
+    print_combined(&run, &calls);
+    assert_combinations_match_key(&run);
+    assert_combined_roles_match_key(&run, &calls);
 }
 
 /// What `table_evidence` measures on the retail fixture under the floor, which
@@ -376,4 +385,99 @@ fn retail_table_evidence_floor() {
     assert_eq!(stores.attribute_columns, vec!["city", "region"]);
     let tx_attrs: Vec<&str> = tx.attribute_columns.iter().map(|s| s.as_str()).collect();
     assert_eq!(tx_attrs, vec!["quantity", "amount", "purchased_at"]);
+}
+
+/// Every table of the answer key, combined datasets included, scores as the
+/// key says over the combined run, and the fold is still the key's.
+fn assert_combined_roles_match_key(run: &CombinedRun, calls: &[RoleCall]) {
+    let key = load_answer_key(&fixture_dir().join("answer-key.json")).unwrap();
+    let paired: Vec<(TableEvidence, RoleCall)> = run
+        .tables
+        .iter()
+        .cloned()
+        .zip(calls.iter().cloned())
+        .collect();
+    assert_roles_match_key(&paired, key.tables.len());
+    assert_folds_match_key(&paired, &run.edges);
+}
+
+#[test]
+fn retail_combinations_match_answer_key() {
+    let (typing, run, calls) = score_combined(TypingRequest::Best);
+    if !matches!(typing, TypingSource::Profiled { .. }) {
+        eprintln!("skipping: FineType's profile is unavailable: {typing:?}");
+        return;
+    }
+    print_combined(&run, &calls);
+    assert_combinations_match_key(&run);
+    assert_combined_roles_match_key(&run, &calls);
+}
+
+/// The combined run under `typing`, with every dataset scored.
+fn score_combined(typing: TypingRequest) -> (TypingSource, CombinedRun, Vec<RoleCall>) {
+    let s = Session::from_sql(&build_sql(), typing).unwrap();
+    let run = run_combined(&s).unwrap();
+    let calls = run
+        .tables
+        .iter()
+        .map(|t| score_table(t, &run.edges, &run.carried, &s.typing))
+        .collect();
+    (s.typing.clone(), run, calls)
+}
+
+/// The combinations found are the answer key's: names, parts and kinds.
+fn assert_combinations_match_key(run: &CombinedRun) {
+    let key = load_answer_key(&fixture_dir().join("answer-key.json")).unwrap();
+    let mut want: Vec<(String, Vec<String>, CombinationKind)> = key
+        .combinations
+        .iter()
+        .map(|c| (c.name.clone(), c.parts.clone(), c.kind))
+        .collect();
+    want.sort();
+    let got: Vec<(String, Vec<String>, CombinationKind)> = run
+        .combinations
+        .iter()
+        .map(|c| (c.name.clone(), c.parts.clone(), c.kind))
+        .collect();
+    assert_eq!(got, want, "{:#?}", run.combinations);
+}
+
+/// Every role, combination and edge of the combined run, for the record.
+fn print_combined(run: &CombinedRun, calls: &[RoleCall]) {
+    for c in &run.combinations {
+        eprintln!(
+            "combination {} {:?} {:?} key {:?}",
+            c.name, c.kind, c.parts, c.key
+        );
+        eprintln!("  token {:?}", c.token_column);
+        eprintln!("  sql {}", c.source_sql);
+        for e in &c.evidence {
+            eprintln!("  - {e}");
+        }
+    }
+    for e in run
+        .edges
+        .iter()
+        .filter(|e| e.status != EdgeStatus::Rejected)
+    {
+        eprintln!(
+            "edge {} -> {} [{:?}] {:.2}",
+            e.child.qualified(),
+            e.parent.qualified(),
+            e.status,
+            e.confidence
+        );
+    }
+    for k in &run.carried {
+        eprintln!("carried {k:?}");
+    }
+    for c in calls {
+        eprintln!(
+            "role {}: {:?} {:?} key {:?}",
+            c.table, c.role, c.scores, c.primary_key
+        );
+        for e in &c.evidence {
+            eprintln!("  - {e}");
+        }
+    }
 }
