@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 
 use crate::evidence::is_audit_name;
 use crate::finetype_ext::TypingSource;
-use crate::relate::{ColumnRef, Edge, EdgeStatus};
+use crate::relate::{singularise, ColumnRef, Edge, EdgeStatus};
 pub use crate::role_key::{CombinationKind, Role};
 
 // --- Thresholds --------------------------------------------------------------
@@ -181,6 +181,55 @@ pub fn points_at(edges: &[Edge]) -> impl Iterator<Item = &Edge> {
         matches!(e.status, EdgeStatus::Accepted | EdgeStatus::Suggested)
             && e.verification.parent_unique
     })
+}
+
+/// A reference proposed folded into the one table that uses it. dovetail
+/// records the fold; the silver step that materialises the model compiles it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fold {
+    pub reference: String,
+    pub host: String,
+    /// The host's column that carries the reference's key.
+    pub child_column: String,
+    /// The reference's key column.
+    pub parent_column: String,
+    /// The one struct column the reference's labels fold into.
+    pub struct_column: String,
+}
+
+/// The fold rule: a reference folds when exactly one table points at it. Two
+/// tables pointing at it make it shared, so it stays a dataset of its own.
+fn foldable(pointers: &[&Edge]) -> bool {
+    let mut hosts: Vec<&str> = pointers.iter().map(|e| e.child.table.as_str()).collect();
+    hosts.sort_unstable();
+    hosts.dedup();
+    hosts.len() == 1
+}
+
+/// The folds to propose, one per foldable reference, sorted by reference.
+pub fn propose_folds(calls: &[RoleCall], edges: &[Edge]) -> Vec<Fold> {
+    let mut folds: Vec<Fold> = Vec::new();
+    for call in calls.iter().filter(|c| c.role == Role::Reference) {
+        let mut pointers: Vec<&Edge> = points_at(edges)
+            .filter(|e| e.parent.table == call.table && e.child.table != call.table)
+            .collect();
+        if !foldable(&pointers) {
+            continue;
+        }
+        pointers.sort_by(|a, b| {
+            (&a.child.column, &a.parent.column).cmp(&(&b.child.column, &b.parent.column))
+        });
+        let e = pointers[0];
+        folds.push(Fold {
+            reference: call.table.clone(),
+            host: e.child.table.clone(),
+            child_column: e.child.column.clone(),
+            parent_column: e.parent.column.clone(),
+            struct_column: singularise(&call.table),
+        });
+    }
+    folds.sort_by(|a, b| a.reference.cmp(&b.reference));
+    folds
 }
 
 /// A pointer out of the table, from an edge or a carried key.
@@ -1318,5 +1367,121 @@ mod tests {
             "{:#?}",
             call.evidence
         );
+    }
+
+    fn call(table: &str, role: Role) -> RoleCall {
+        RoleCall {
+            table: table.into(),
+            role,
+            scores: vec![],
+            evidence: vec![],
+            primary_key: vec![],
+            time_field: None,
+            audit_time_fields: vec![],
+            typing: "profiled".into(),
+        }
+    }
+
+    #[test]
+    fn single_pointer_reference_folds() {
+        let edges = [edge(
+            ("products", "category_id"),
+            ("categories", "category_id"),
+            EdgeStatus::Accepted,
+            true,
+            8,
+            120,
+            8,
+        )];
+        let calls = [
+            call("categories", Role::Reference),
+            call("products", Role::Entity),
+        ];
+        assert_eq!(
+            propose_folds(&calls, &edges),
+            vec![Fold {
+                reference: "categories".into(),
+                host: "products".into(),
+                child_column: "category_id".into(),
+                parent_column: "category_id".into(),
+                struct_column: "category".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn shared_reference_stays() {
+        let e = |t: &str| {
+            edge(
+                (t, "category_id"),
+                ("categories", "category_id"),
+                EdgeStatus::Accepted,
+                true,
+                8,
+                100,
+                8,
+            )
+        };
+        let edges = [e("products"), e("promotions")];
+        let calls = [call("categories", Role::Reference)];
+        assert!(propose_folds(&calls, &edges).is_empty());
+    }
+
+    #[test]
+    fn two_columns_of_one_table_still_fold_once() {
+        let e = |c: &str| {
+            edge(
+                ("products", c),
+                ("categories", "category_id"),
+                EdgeStatus::Suggested,
+                true,
+                8,
+                100,
+                8,
+            )
+        };
+        let edges = [e("main_id"), e("alt_id")];
+        let calls = [call("categories", Role::Reference)];
+        let folds = propose_folds(&calls, &edges);
+        assert_eq!(folds.len(), 1);
+        assert_eq!(folds[0].child_column, "alt_id");
+    }
+
+    #[test]
+    fn non_reference_never_folds() {
+        let edges = [edge(
+            ("orders", "customer_id"),
+            ("customers", "customer_id"),
+            EdgeStatus::Accepted,
+            true,
+            50,
+            500,
+            50,
+        )];
+        for role in [
+            Role::Entity,
+            Role::Event,
+            Role::Bridge,
+            Role::Snapshot,
+            Role::Unclear,
+        ] {
+            assert!(propose_folds(&[call("customers", role)], &edges).is_empty());
+        }
+    }
+
+    #[test]
+    fn unpointed_or_rejected_reference_does_not_fold() {
+        let rejected = [edge(
+            ("products", "category_id"),
+            ("categories", "category_id"),
+            EdgeStatus::Rejected,
+            true,
+            8,
+            120,
+            8,
+        )];
+        let calls = [call("categories", Role::Reference)];
+        assert!(propose_folds(&calls, &rejected).is_empty());
+        assert!(propose_folds(&calls, &[]).is_empty());
     }
 }

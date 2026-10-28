@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 
 use dovetail_core::evidence::{column_evidence, table_evidence, Session};
 use dovetail_core::finetype_ext::{TypingRequest, TypingSource};
-use dovetail_core::relate::{run_session, run_with, EdgeStatus};
+use dovetail_core::relate::{run_session, run_with, Edge, EdgeStatus};
 use dovetail_core::role_key::{load_answer_key, CombinationKind, Role};
-use dovetail_core::roles::{score_table, RoleCall, TableEvidence};
+use dovetail_core::roles::{propose_folds, score_table, RoleCall, TableEvidence};
 
 fn fixture_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/role-fixtures/retail")
@@ -215,8 +215,10 @@ const STAND_INS: [&str; 8] = [
     "promo_codes",
 ];
 
+type Scored = (TypingSource, Vec<(TableEvidence, RoleCall)>, Vec<Edge>);
+
 /// Score the stand-in tables under `typing`, with each table's evidence.
-fn score_stand_ins(typing: TypingRequest) -> (TypingSource, Vec<(TableEvidence, RoleCall)>) {
+fn score_stand_ins(typing: TypingRequest) -> Scored {
     let s = Session::from_sql(&build_sql(), typing).unwrap();
     let cols = column_evidence(&s).unwrap();
     let mut all: Vec<String> = cols.iter().map(|c| c.table.clone()).collect();
@@ -242,17 +244,50 @@ fn score_stand_ins(typing: TypingRequest) -> (TypingSource, Vec<(TableEvidence, 
             (t, call)
         })
         .collect();
-    (s.typing.clone(), calls)
+    (s.typing.clone(), calls, run.edges)
 }
 
 #[test]
 fn retail_roles_match_answer_key() {
-    let (typing, calls) = score_stand_ins(TypingRequest::Best);
+    let (typing, calls, _) = score_stand_ins(TypingRequest::Best);
     if !matches!(typing, TypingSource::Profiled { .. }) {
         eprintln!("skipping: FineType's profile is unavailable: {typing:?}");
         return;
     }
     assert_roles_match_key(&calls);
+}
+
+/// The proposed folds are the answer key's.
+fn assert_folds_match_key(calls: &[(TableEvidence, RoleCall)], edges: &[Edge]) {
+    let key = load_answer_key(&fixture_dir().join("answer-key.json")).unwrap();
+    let role_calls: Vec<RoleCall> = calls.iter().map(|(_, c)| c.clone()).collect();
+    let folds = propose_folds(&role_calls, edges);
+    let got: Vec<(&str, &str, &str)> = folds
+        .iter()
+        .map(|f| {
+            (
+                f.reference.as_str(),
+                f.host.as_str(),
+                f.struct_column.as_str(),
+            )
+        })
+        .collect();
+    let want: Vec<(&str, &str, &str)> = key
+        .folds
+        .iter()
+        .map(|f| (f.reference.as_str(), f.into.as_str(), "category"))
+        .collect();
+    assert_eq!(got, want);
+}
+
+#[test]
+fn retail_folds_match_answer_key() {
+    let (typing, calls, edges) = score_stand_ins(TypingRequest::Best);
+    if !matches!(typing, TypingSource::Profiled { .. }) {
+        eprintln!("skipping: FineType's profile is unavailable: {typing:?}");
+        return;
+    }
+    assert_folds_match_key(&calls, &edges);
 }
 
 /// Each call's role is the answer key's; on failure, every mismatch with its
@@ -276,7 +311,7 @@ fn assert_roles_match_key(calls: &[(TableEvidence, RoleCall)]) {
 
 #[test]
 fn retail_roles_floor_recorded() {
-    let (_, calls) = score_stand_ins(TypingRequest::Floor);
+    let (_, calls, edges) = score_stand_ins(TypingRequest::Floor);
     assert_eq!(calls.len(), STAND_INS.len());
     for (t, call) in &calls {
         assert!(
@@ -288,13 +323,14 @@ fn retail_roles_floor_recorded() {
     }
     // CI runs only the floor, so the floor pins the roles too.
     assert_roles_match_key(&calls);
+    assert_folds_match_key(&calls, &edges);
 }
 
 /// What `table_evidence` measures on the retail fixture under the floor, which
 /// is the typing CI runs.
 #[test]
 fn retail_table_evidence_floor() {
-    let (_, calls) = score_stand_ins(TypingRequest::Floor);
+    let (_, calls, _) = score_stand_ins(TypingRequest::Floor);
     let get = |name: &str| &calls.iter().find(|(t, _)| t.name == name).unwrap().0;
     for (table, key, times) in [
         ("customers", &["customer_id"][..], &["joined_on"][..]),
