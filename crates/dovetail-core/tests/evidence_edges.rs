@@ -341,6 +341,14 @@ fn formatted_text_prices_are_not_key_shaped() {
 }
 
 #[test]
+fn mixed_width_untyped_integers_are_not_key_shaped() {
+    // 3 .. 1875: every value has the pattern 9, but no one length reaches 90%.
+    let e = untyped_exact_name("CAST(i * i * 3 AS INTEGER)");
+    assert!(!e.parent_key_shaped);
+    assert_ne!(edge_from_evidence(&e).status, EdgeStatus::Accepted);
+}
+
+#[test]
 fn unique_untyped_bigint_numbers_are_key_shaped() {
     let e = untyped_exact_name("CAST(1000 + i AS BIGINT)");
     assert!(e.parent_key_shaped);

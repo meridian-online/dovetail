@@ -407,9 +407,10 @@ pub struct EdgeEvidence {
     pub child_label: Option<String>,
     pub parent_label: Option<String>,
     /// Whether the parent's values look like keys (at least 90% are made of
-    /// letters, digits and `- _ / . :` and share one length or one pattern;
-    /// see `parent_key_shaped`). Measured only for an untyped parent that could earn
-    /// [`relate::exact_name_key_credit`] otherwise; `false` elsewhere.
+    /// letters, digits and `- _ / . :` and share one length or, among values
+    /// with a letter, one pattern; see `parent_key_shaped`). Measured only for
+    /// an untyped parent that could earn [`relate::exact_name_key_credit`]
+    /// otherwise; `false` elsewhere.
     pub parent_key_shaped: bool,
 }
 
@@ -559,9 +560,11 @@ pub(crate) fn measure_edges(
 /// all digits; so `BEV-12` and `10042` are key-like and `12.50`, `$12.50`,
 /// `1,234.50`, `(12.50)` and `New York` are not. The column is key-shaped when
 /// at least 90% of all its non-null values are key-like and share one length,
-/// or are key-like and share one pattern (each letter is `A`, a run of digits
-/// `9`); a value that is not key-like counts against both shares. An empty
-/// column is not key-shaped.
+/// or are key-like, hold a letter and share one pattern (each letter is `A`, a
+/// run of digits `9`). Only lettered values count towards the pattern share,
+/// since every all-digit value has the pattern `9`; all-digit values count
+/// towards the length share. A value that is not key-like counts against both
+/// shares. An empty column is not key-shaped.
 fn parent_key_shaped(
     conn: &Connection,
     relation: &str,
@@ -575,10 +578,10 @@ fn parent_key_shaped(
                       AND (regexp_matches(s, '[A-Za-z]') OR regexp_full_match(s, '[0-9]+'))),
               p AS (SELECT regexp_replace(regexp_replace(s, '[A-Za-z]', 'A', 'g'),
                                           '[0-9]+', '9', 'g') AS pat,
-                         length(s) AS len FROM k)
+                         regexp_matches(s, '[A-Za-z]') AS lettered, length(s) AS len FROM k)
          SELECT (SELECT count(*) FROM v),
                 coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p GROUP BY len)), 0),
-                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p GROUP BY pat)), 0)"
+                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p WHERE lettered GROUP BY pat)), 0)"
     );
     let (total, same_len, same_pat): (i64, i64, i64) =
         conn.query_row(&sql, [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
