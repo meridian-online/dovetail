@@ -531,7 +531,11 @@ pub(crate) fn measure_edges(
             };
             // One SELECT, and only for a pair the cheaper conditions leave
             // undecided.
-            if relate::needs_key_shape(&edge) {
+            // Only text and integer columns can be keys here: a decimal, float,
+            // date or boolean column measures something.
+            if relate::needs_key_shape(&edge)
+                && matches!(type_family(&parent.duckdb_type), "text" | "int")
+            {
                 let key = (parent.table.clone(), parent.column.clone());
                 edge.parent_key_shaped = match shapes.get(&key) {
                     Some(&shaped) => shaped,
@@ -549,9 +553,11 @@ pub(crate) fn measure_edges(
     Ok(edges)
 }
 
-/// Whether a column's non-null values look like keys: none holds whitespace,
-/// and at least 90% share one length or one pattern of letters, digits and
-/// separators. An empty column is not key-shaped.
+/// Whether a text or integer column's non-null values look like keys: none
+/// holds whitespace, and at least 90% share one length or, among values with
+/// a letter, one pattern (each letter is `A`, a run of digits `9`). A value
+/// that is a plain decimal (`12.50`) counts towards neither share, so a
+/// column of prices is not key-shaped. An empty column is not key-shaped.
 fn parent_key_shaped(
     conn: &Connection,
     relation: &str,
@@ -562,11 +568,12 @@ fn parent_key_shaped(
         "WITH v AS (SELECT CAST({c} AS VARCHAR) AS s FROM {relation} WHERE {c} IS NOT NULL),
               p AS (SELECT regexp_replace(regexp_replace(s, '[A-Za-z]', 'A', 'g'),
                                           '[0-9]+', '9', 'g') AS pat,
-                         regexp_matches(s, '[A-Za-z]') AS lettered, length(s) AS len FROM v)
+                         regexp_matches(s, '[A-Za-z]') AS lettered, length(s) AS len,
+                         regexp_matches(s, '^-?[0-9]+\\.[0-9]+$') AS dec FROM v)
          SELECT (SELECT count(*) FROM v),
                 (SELECT count(*) FROM v WHERE regexp_matches(s, '\\s')),
-                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p GROUP BY len)), 0),
-                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p WHERE lettered GROUP BY pat)), 0)"
+                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p WHERE NOT dec GROUP BY len)), 0),
+                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p WHERE lettered AND NOT dec GROUP BY pat)), 0)"
     );
     let (total, spaced, same_len, same_pat): (i64, i64, i64, i64) =
         conn.query_row(&sql, [], |r| {

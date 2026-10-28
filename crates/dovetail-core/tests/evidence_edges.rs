@@ -273,8 +273,9 @@ fn key_shape_collapses_runs_so_a_varying_length_still_passes() {
     assert_eq!(edge_from_evidence(e).status, EdgeStatus::Accepted);
 }
 
-/// An untyped parent of `n` unique values from `expr` (over `i`), and a child
-/// drawn from it with the same column name; its edge evidence.
+/// The edge evidence for an untyped exact-name pair: `parents.v` holds 25
+/// unique values of `values` (an expression over `i`) and `kids.v` the first
+/// ten.
 fn untyped_exact_name(values: &str) -> EdgeEvidence {
     let s = Session::from_sql(
         &format!(
@@ -304,4 +305,24 @@ fn unique_one_word_cities_are_not_key_shaped() {
 fn unique_decimal_amounts_are_not_key_shaped() {
     let e = untyped_exact_name("CAST(i * 7.25 + (i % 3) * 100 AS DECIMAL(9, 2))::VARCHAR");
     assert!(!e.parent_key_shaped);
+}
+
+#[test]
+fn fixed_width_prices_are_not_key_shaped_as_decimal_or_text() {
+    let price = "CAST(10 + i * 3.17 AS DECIMAL(9, 2))";
+    for values in [price.to_string(), format!("CAST({price} AS VARCHAR)")] {
+        let e = untyped_exact_name(&values);
+        assert!(!e.parent_key_shaped, "{values}");
+        assert_ne!(
+            edge_from_evidence(&e).status,
+            EdgeStatus::Accepted,
+            "{values}"
+        );
+    }
+}
+
+#[test]
+fn unique_untyped_bigint_numbers_are_key_shaped() {
+    let e = untyped_exact_name("CAST(1000 + i AS BIGINT)");
+    assert!(e.parent_key_shaped);
 }
