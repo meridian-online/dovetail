@@ -9,7 +9,7 @@
 //! that only a session runs: the SQL builders here take the catalog to read
 //! (a catalog name for the column listing, `src` for a session and
 //! `current_database()` for a bare connection; a table prefix for the rest,
-//! [`SESSION_PREFIX`] for a session and empty for a bare connection), so the
+//! `SESSION_PREFIX` for a session and empty for a bare connection), so the
 //! same measurements run on a connection dovetail must never write to.
 
 use std::collections::BTreeSet;
@@ -451,7 +451,7 @@ pub struct EdgeEvidence {
     /// Whether the parent's values look like keys (at least 90% are made of
     /// letters, digits and `- _ / . :` and share one length or, among values
     /// with a letter, one pattern; see `parent_key_shaped`). Measured only for
-    /// an untyped parent that could earn [`relate::exact_name_key_credit`]
+    /// an untyped parent that could earn `exact_name_key_credit`
     /// otherwise; `false` elsewhere.
     pub parent_key_shaped: bool,
 }

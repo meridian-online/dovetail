@@ -120,7 +120,8 @@ fn typing_label(t: &TypingSource) -> &'static str {
 /// Score `model` against `key`. Table names match ignoring case. A fold
 /// matches on its reference and host; a combination on its name, parts and
 /// kind, so a pair combined as the wrong kind is both a false positive and a
-/// false negative.
+/// false negative. A table in the key with no call counts in `tables` and is a
+/// miss, but has no cell in the confusion matrix.
 pub fn score_set(model: &RoleModel, key: &AnswerKey, tier: u8) -> SetResult {
     let mut misses = Vec::new();
     let mut confusion = BTreeMap::new();
@@ -131,16 +132,21 @@ pub fn score_set(model: &RoleModel, key: &AnswerKey, tier: u8) -> SetResult {
         .iter()
         .map(|c| (c.table.to_lowercase(), c.role))
         .collect();
-    for (name, want) in &key.tables {
+    let expected: BTreeMap<String, Role> = key
+        .tables
+        .iter()
+        .map(|(n, t)| (n.to_lowercase(), t.role))
+        .collect();
+    for (name, &want) in &expected {
         match called.get(name) {
             Some(&got) => {
-                *confusion.entry((want.role, got)).or_insert(0) += 1;
-                if got == want.role {
+                *confusion.entry((want, got)).or_insert(0) += 1;
+                if got == want {
                     correct += 1;
                 } else {
                     misses.push(format!(
                         "table `{name}`: the key says {}, called {}",
-                        role_name(want.role),
+                        role_name(want),
                         role_name(got)
                     ));
                 }
@@ -149,7 +155,7 @@ pub fn score_set(model: &RoleModel, key: &AnswerKey, tier: u8) -> SetResult {
         }
     }
     for (name, got) in &called {
-        if !key.tables.contains_key(name) {
+        if !expected.contains_key(name) {
             misses.push(format!(
                 "table `{name}`: called {}, not in the key",
                 role_name(*got)
@@ -165,7 +171,7 @@ pub fn score_set(model: &RoleModel, key: &AnswerKey, tier: u8) -> SetResult {
     let folds_expected: BTreeSet<(String, String)> = key
         .folds
         .iter()
-        .map(|f| (f.reference.clone(), f.into.clone()))
+        .map(|f| (f.reference.to_lowercase(), f.into.to_lowercase()))
         .collect();
     for (r, h) in folds_called.difference(&folds_expected) {
         misses.push(format!("fold `{r}` into `{h}`: called, not in the key"));
@@ -209,7 +215,7 @@ pub fn score_set(model: &RoleModel, key: &AnswerKey, tier: u8) -> SetResult {
         set: key.name.clone(),
         tier,
         typing: typing_label(&model.typing).to_string(),
-        tables: key.tables.len(),
+        tables: expected.len(),
         correct,
         confusion,
         folds: PrecisionRecall::of(&folds_called, &folds_expected),

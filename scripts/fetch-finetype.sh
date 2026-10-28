@@ -78,7 +78,7 @@ digest_of() {
 }
 
 fetch() { # fetch URL OUT
-  curl -sSfL --retry 3 --retry-delay 2 -o "$2" "$1" || fail "could not fetch $1"
+  curl -sSfL --connect-timeout 20 --max-time 600 --retry 3 --retry-delay 2 -o "$2" "$1" || fail "could not fetch $1"
 }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/dovetail-finetype-fetch.XXXXXX")

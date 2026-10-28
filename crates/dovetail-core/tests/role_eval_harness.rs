@@ -259,14 +259,19 @@ fn tier1_retail_floor_recorded() {
     );
 }
 
+/// The checkout's commit, `-dirty` when it has uncommitted changes, or
+/// `unknown` outside a git checkout.
 fn dovetail_commit() -> String {
-    let out = Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
+    Command::new("git")
+        .args(["describe", "--always", "--dirty"])
         .current_dir(repo_root())
         .output()
-        .expect("run git");
-    assert!(out.status.success(), "git rev-parse failed");
-    String::from_utf8(out.stdout).unwrap().trim().to_string()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// Both typings' tier-1 runs, rendered, match the committed record apart from
