@@ -78,7 +78,7 @@ fn discovery_assigns_the_expected_status_to_every_fixture_edge() {
 // coincidence (boolean overlap, surrogate-id overlap, small unique attribute,
 // unique names) does.
 #[test]
-fn only_the_holding_fk_auto_accepts() {
+fn only_the_holding_fk_and_the_exact_name_key_auto_accept() {
     let conn = build_fixture();
     let edges = discover(&conn).expect("discover");
     let acc: Vec<String> = accepted(&edges)

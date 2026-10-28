@@ -108,8 +108,8 @@ fn identifier_typing_moves_every_fixture_edge_to_its_expected_status() {
 }
 
 /// The complete accepted set, both ways round: with typing, and without it,
-/// where the exact-name key credit still accepts a same-named, key-shaped parent. Naming the whole set is what
-/// stops a floor that is too generous from passing: a new accept anywhere in the
+/// where the exact-name key credit still accepts a same-named, key-shaped
+/// parent. Naming the whole set is what stops a floor that is too generous from passing: a new accept anywhere in the
 /// fixture reddens this.
 #[test]
 fn the_accepted_set_is_exactly_the_manifests_both_with_and_without_typing() {

@@ -142,8 +142,9 @@ pub const KEY_NAME_MATCH_MIN_DISTINCT: i64 = 20;
 /// FineType label families a key is not drawn from: person and place names,
 /// contact details, free text, dates and times, booleans, and measured
 /// numbers. An entry ending in `.` excludes the whole family; any other
-/// entry names one label. Taken from the `label` namespaces of FineType's
-/// taxonomy (`labels/definitions_*.yaml`) at the pinned release. Codes
+/// entry names one label, except `finance.currency.amount`, which also
+/// covers its variants (`amount_comma`, `amount_lakh`, ...). Taken from the `label`
+/// namespaces of FineType's taxonomy (`labels/definitions_*.yaml`) at the pinned release. Codes
 /// (`geography.location.country_code`, `representation.identifier.*`) are
 /// not excluded.
 pub const EXCLUDED_KEY_LABELS: &[&str] = &[
@@ -171,12 +172,16 @@ pub const EXCLUDED_KEY_LABELS: &[&str] = &[
     "representation.numeric.scientific_notation",
     "representation.numeric.percentage",
     "representation.numeric.si_number",
+    "representation.file.file_size",
+    // money amounts and rates; currency codes are codes and stay creditable
+    "finance.currency.amount",
+    "finance.rate.",
     "representation.scientific.",
 ];
 
 fn label_excluded(label: &str) -> bool {
     EXCLUDED_KEY_LABELS.iter().any(|x| {
-        if x.ends_with('.') {
+        if x.ends_with('.') || *x == "finance.currency.amount" {
             label.starts_with(x)
         } else {
             label == *x
@@ -187,7 +192,9 @@ fn label_excluded(label: &str) -> bool {
 /// Whether `e` meets every condition for [`exact_name_key_credit`] short of
 /// the values' shape, and the parent is untyped, so the shape decides it.
 pub(crate) fn needs_key_shape(e: &EdgeEvidence) -> bool {
-    e.parent_label.is_none() && credit_basics(e)
+    e.parent_label.is_none()
+        && credit_basics(e)
+        && key_signal(&e.parent.column, None) < SEMANTIC_KEY_FLOOR
 }
 
 fn credit_basics(e: &EdgeEvidence) -> bool {

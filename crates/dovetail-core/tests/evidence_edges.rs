@@ -210,3 +210,65 @@ fn a_table_named_child_is_still_a_parent() {
     assert_eq!(edge.status, EdgeStatus::Accepted);
     assert_eq!(edge.verification.orphan_count, 0);
 }
+
+/// A pair that passes every basic condition for the exact-name key credit:
+/// the same name, a unique parent of 25, full overlap.
+fn credit_candidate(parent_label: Option<&str>, shaped: bool) -> EdgeEvidence {
+    EdgeEvidence {
+        child: col("orders", "sku"),
+        parent: col("items", "sku"),
+        child_total: 30,
+        child_distinct: 20,
+        parent_total: 25,
+        parent_distinct: 25,
+        overlap_distinct: 20,
+        orphan_count: 0,
+        name_similarity: 0.7,
+        semantic_similarity: 0.0,
+        child_label: None,
+        parent_label: parent_label.map(str::to_string),
+        parent_key_shaped: shaped,
+    }
+}
+
+#[test]
+fn typed_parent_credit_follows_the_excluded_families() {
+    for label in [
+        "identity.person.full_name",
+        "representation.numeric.decimal_number",
+        "finance.currency.amount",
+        "finance.currency.amount_lakh",
+        "finance.rate.yield",
+        "representation.file.file_size",
+        "datetime.date.iso",
+    ] {
+        // Key-shaped values do not rescue an excluded label.
+        let edge = edge_from_evidence(&credit_candidate(Some(label), true));
+        assert_eq!(edge.status, EdgeStatus::Rejected, "{label}");
+    }
+    for label in [
+        "representation.numeric.integer_number",
+        "finance.currency.currency_code",
+    ] {
+        let edge = edge_from_evidence(&credit_candidate(Some(label), false));
+        assert_eq!(edge.status, EdgeStatus::Accepted, "{label}");
+    }
+}
+
+#[test]
+fn key_shape_collapses_runs_so_a_varying_length_still_passes() {
+    // BEV-1 .. BEV-25 have two lengths (9 and 16 values), so neither alone
+    // reaches 90%; every value has the pattern letters-dash-digits.
+    let s = Session::from_sql(
+        "CREATE TABLE items AS SELECT 'BEV-' || CAST(i AS VARCHAR) AS sku FROM range(1, 26) t(i);
+         CREATE TABLE lines AS SELECT 'BEV-' || CAST(i AS VARCHAR) AS sku FROM range(1, 11) t(i);",
+        TypingRequest::Floor,
+    )
+    .unwrap();
+    let cols = column_evidence(&s).unwrap();
+    let tables = vec!["items".to_string(), "lines".to_string()];
+    let edges = edge_evidence(&s, &cols, &tables).unwrap();
+    let e = find(&edges, "lines.sku", "items.sku");
+    assert!(e.parent_key_shaped);
+    assert_eq!(edge_from_evidence(e).status, EdgeStatus::Accepted);
+}

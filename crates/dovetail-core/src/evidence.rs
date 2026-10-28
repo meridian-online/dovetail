@@ -469,6 +469,8 @@ pub(crate) fn measure_edges(
     let in_scope: Vec<&ColumnEvidence> =
         cols.iter().filter(|c| tables.contains(&c.table)).collect();
     let mut edges = Vec::new();
+    // Each parent column's key shape, measured at most once.
+    let mut shapes: std::collections::BTreeMap<(String, String), bool> = Default::default();
     for child in &in_scope {
         if child.non_null == 0 {
             continue;
@@ -530,8 +532,16 @@ pub(crate) fn measure_edges(
             // One SELECT, and only for a pair the cheaper conditions leave
             // undecided.
             if relate::needs_key_shape(&edge) {
-                edge.parent_key_shaped =
-                    parent_key_shaped(conn, &relation(&parent.table), &parent.column)?;
+                let key = (parent.table.clone(), parent.column.clone());
+                edge.parent_key_shaped = match shapes.get(&key) {
+                    Some(&shaped) => shaped,
+                    None => {
+                        let shaped =
+                            parent_key_shaped(conn, &relation(&parent.table), &parent.column)?;
+                        shapes.insert(key, shaped);
+                        shaped
+                    }
+                };
             }
             edges.push(edge);
         }
@@ -550,8 +560,8 @@ fn parent_key_shaped(
     let c = quote(column);
     let sql = format!(
         "WITH v AS (SELECT CAST({c} AS VARCHAR) AS s FROM {relation} WHERE {c} IS NOT NULL),
-              p AS (SELECT regexp_replace(regexp_replace(s, '[A-Za-z]', 'A', 'g'),
-                                          '[0-9]', '9', 'g') AS pat, length(s) AS len FROM v)
+              p AS (SELECT regexp_replace(regexp_replace(s, '[A-Za-z]+', 'A', 'g'),
+                                          '[0-9]+', '9', 'g') AS pat, length(s) AS len FROM v)
          SELECT (SELECT count(*) FROM v),
                 (SELECT count(*) FROM v WHERE regexp_matches(s, '\\s')),
                 coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p GROUP BY len)), 0),
