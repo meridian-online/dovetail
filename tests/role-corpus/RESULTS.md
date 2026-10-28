@@ -2,7 +2,7 @@
 
 Each set's role calls scored against its answer key. Written by the `role_eval_harness` test with `DOVETAIL_WRITE_ROLE_RESULTS=1`; everything but the stamp is the same on every run of the same code.
 
-Stamp: finetype 0.6.64, model sha256 86d7fcde7f92cbb2fb47bbe04ad65bfe991f9d698bf4d66c2a48e59fbf91fabe, dovetail 82d1fac
+Stamp: finetype 0.6.64, model sha256 86d7fcde7f92cbb2fb47bbe04ad65bfe991f9d698bf4d66c2a48e59fbf91fabe, dovetail 9bfcfef
 
 ## Summary
 
