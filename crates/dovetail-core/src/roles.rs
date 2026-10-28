@@ -199,12 +199,18 @@ pub struct Fold {
 
 /// The fold rule: a reference folds when there is one pointing column of one
 /// table. Two tables pointing at it make it shared; two columns of one table
-/// make it a role-playing lookup (origin and destination). Either way it stays
-/// a dataset of its own.
+/// make it a role-playing lookup (origin and destination); one column reaching
+/// two of its keys is ambiguous. Either way it stays a dataset of its own.
 fn foldable(pointers: &[&Edge]) -> bool {
-    let mut columns: Vec<(&str, &str)> = pointers
+    let mut columns: Vec<(&str, &str, &str)> = pointers
         .iter()
-        .map(|e| (e.child.table.as_str(), e.child.column.as_str()))
+        .map(|e| {
+            (
+                e.child.table.as_str(),
+                e.child.column.as_str(),
+                e.parent.column.as_str(),
+            )
+        })
         .collect();
     columns.sort_unstable();
     columns.dedup();
@@ -1443,6 +1449,24 @@ mod tests {
             )
         };
         let edges = [e("main_id"), e("alt_id")];
+        let calls = [call("categories", Role::Reference)];
+        assert!(propose_folds(&calls, &edges).is_empty());
+    }
+
+    #[test]
+    fn one_column_reaching_two_parent_keys_stays_a_reference() {
+        let e = |p: &str| {
+            edge(
+                ("products", "category_id"),
+                ("categories", p),
+                EdgeStatus::Suggested,
+                true,
+                8,
+                100,
+                8,
+            )
+        };
+        let edges = [e("id"), e("sort_order")];
         let calls = [call("categories", Role::Reference)];
         assert!(propose_folds(&calls, &edges).is_empty());
     }
