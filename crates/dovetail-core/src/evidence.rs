@@ -560,12 +560,13 @@ fn parent_key_shaped(
     let c = quote(column);
     let sql = format!(
         "WITH v AS (SELECT CAST({c} AS VARCHAR) AS s FROM {relation} WHERE {c} IS NOT NULL),
-              p AS (SELECT regexp_replace(regexp_replace(s, '[A-Za-z]+', 'A', 'g'),
-                                          '[0-9]+', '9', 'g') AS pat, length(s) AS len FROM v)
+              p AS (SELECT regexp_replace(regexp_replace(s, '[A-Za-z]', 'A', 'g'),
+                                          '[0-9]+', '9', 'g') AS pat,
+                         regexp_matches(s, '[A-Za-z]') AS lettered, length(s) AS len FROM v)
          SELECT (SELECT count(*) FROM v),
                 (SELECT count(*) FROM v WHERE regexp_matches(s, '\\s')),
                 coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p GROUP BY len)), 0),
-                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p GROUP BY pat)), 0)"
+                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p WHERE lettered GROUP BY pat)), 0)"
     );
     let (total, spaced, same_len, same_pat): (i64, i64, i64, i64) =
         conn.query_row(&sql, [], |r| {

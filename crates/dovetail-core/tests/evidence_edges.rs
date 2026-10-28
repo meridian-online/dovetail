@@ -257,8 +257,8 @@ fn typed_parent_credit_follows_the_excluded_families() {
 
 #[test]
 fn key_shape_collapses_runs_so_a_varying_length_still_passes() {
-    // BEV-1 .. BEV-25 have two lengths (9 and 16 values), so neither alone
-    // reaches 90%; every value has the pattern letters-dash-digits.
+    // BEV-1 .. BEV-25 have two lengths (9 and 16 values), so length alone
+    // does not reach 90%; every value has the pattern AAA-9.
     let s = Session::from_sql(
         "CREATE TABLE items AS SELECT 'BEV-' || CAST(i AS VARCHAR) AS sku FROM range(1, 26) t(i);
          CREATE TABLE lines AS SELECT 'BEV-' || CAST(i AS VARCHAR) AS sku FROM range(1, 11) t(i);",
@@ -271,4 +271,37 @@ fn key_shape_collapses_runs_so_a_varying_length_still_passes() {
     let e = find(&edges, "lines.sku", "items.sku");
     assert!(e.parent_key_shaped);
     assert_eq!(edge_from_evidence(e).status, EdgeStatus::Accepted);
+}
+
+/// An untyped parent of `n` unique values from `expr` (over `i`), and a child
+/// drawn from it with the same column name; its edge evidence.
+fn untyped_exact_name(values: &str) -> EdgeEvidence {
+    let s = Session::from_sql(
+        &format!(
+            "CREATE TABLE parents AS SELECT {values} AS v FROM range(1, 26) t(i);
+             CREATE TABLE kids AS SELECT {values} AS v FROM range(1, 11) t(i);"
+        ),
+        TypingRequest::Floor,
+    )
+    .unwrap();
+    let cols = column_evidence(&s).unwrap();
+    let tables = vec!["parents".to_string(), "kids".to_string()];
+    let edges = edge_evidence(&s, &cols, &tables).unwrap();
+    find(&edges, "kids.v", "parents.v").clone()
+}
+
+#[test]
+fn unique_one_word_cities_are_not_key_shaped() {
+    let cities = "(['Paris','London','Rome','Berlin','Madrid','Vienna','Oslo','Lisbon','Dublin',\
+        'Prague','Athens','Warsaw','Helsinki','Brussels','Zurich','Geneva','Munich','Hamburg',\
+        'Milan','Naples','Seville','Porto','Lyon','Nice','Cork'])[i]";
+    let e = untyped_exact_name(cities);
+    assert!(!e.parent_key_shaped);
+    assert_ne!(edge_from_evidence(&e).status, EdgeStatus::Accepted);
+}
+
+#[test]
+fn unique_decimal_amounts_are_not_key_shaped() {
+    let e = untyped_exact_name("CAST(i * 7.25 + (i % 3) * 100 AS DECIMAL(9, 2))::VARCHAR");
+    assert!(!e.parent_key_shaped);
 }

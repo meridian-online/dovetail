@@ -142,9 +142,8 @@ pub const KEY_NAME_MATCH_MIN_DISTINCT: i64 = 20;
 /// FineType label families a key is not drawn from: person and place names,
 /// contact details, free text, dates and times, booleans, and measured
 /// numbers. An entry ending in `.` excludes the whole family; any other
-/// entry names one label, except `finance.currency.amount`, which also
-/// covers its variants (`amount_comma`, `amount_lakh`, ...). Taken from the `label`
-/// namespaces of FineType's taxonomy (`labels/definitions_*.yaml`) at the pinned release. Codes
+/// entry names one label. Taken from the `label` namespaces of FineType's
+/// taxonomy (`labels/definitions_*.yaml`) at the pinned release. Codes
 /// (`geography.location.country_code`, `representation.identifier.*`) are
 /// not excluded.
 pub const EXCLUDED_KEY_LABELS: &[&str] = &[
@@ -175,13 +174,24 @@ pub const EXCLUDED_KEY_LABELS: &[&str] = &[
     "representation.file.file_size",
     // money amounts and rates; currency codes are codes and stay creditable
     "finance.currency.amount",
+    "finance.currency.amount_accounting",
+    "finance.currency.amount_apostrophe",
+    "finance.currency.amount_code_prefix",
+    "finance.currency.amount_comma",
+    "finance.currency.amount_comma_suffix",
+    "finance.currency.amount_crypto",
+    "finance.currency.amount_lakh",
+    "finance.currency.amount_multisym",
+    "finance.currency.amount_neg_trailing",
+    "finance.currency.amount_nodecimal",
+    "finance.currency.amount_space",
     "finance.rate.",
     "representation.scientific.",
 ];
 
 fn label_excluded(label: &str) -> bool {
     EXCLUDED_KEY_LABELS.iter().any(|x| {
-        if x.ends_with('.') || *x == "finance.currency.amount" {
+        if x.ends_with('.') {
             label.starts_with(x)
         } else {
             label == *x
