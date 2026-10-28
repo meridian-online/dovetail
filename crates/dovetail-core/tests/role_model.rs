@@ -1,12 +1,13 @@
 //! The role model: roles, folds and combinations carried together, the
-//! summary `dovetail relate` prints from them, and the descriptor left as
-//! `relate` writes it without them.
+//! summary `dovetail relate` prints from them, and the descriptor it carries:
+//! `relate`'s own, with no join between two parts of one combination.
 
 use std::path::{Path, PathBuf};
 
 use dovetail_core::combine::run_combined;
 use dovetail_core::evidence::Session;
 use dovetail_core::finetype_ext::TypingRequest;
+use dovetail_core::relate;
 use dovetail_core::roles::{self, Role};
 
 fn repo_root() -> PathBuf {
@@ -210,6 +211,15 @@ fn staged_run_matches_one_call() {
     let one = roles::run_session(&fresh).unwrap();
     assert_eq!(staged.render_summary(), one.render_summary());
     assert_eq!(staged.relate.descriptor, one.relate.descriptor);
+
+    // A library caller of relate alone gets the descriptor the CLI writes.
+    let library = Session::from_sql(&retail_sql(), TypingRequest::Floor).unwrap();
+    let relate_only = relate::run_session(&library).unwrap();
+    assert_eq!(relate_only.descriptor, descriptor);
+    assert_eq!(
+        format!("{:?}", relate_only.edges),
+        format!("{:?}", staged.relate.edges)
+    );
 }
 
 /// Reusing the parts pass's rows for untouched tables gives the combined

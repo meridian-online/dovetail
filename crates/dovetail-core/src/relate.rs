@@ -16,6 +16,7 @@ use std::collections::HashMap;
 
 use duckdb::Connection;
 
+use crate::combine::{find_combinations, Combination};
 use crate::evidence::{self, ColumnEvidence, EdgeEvidence, EvidenceError, ListedColumn, Session};
 use crate::finetype_ext::TypingRequest;
 use crate::identifiers;
@@ -314,19 +315,34 @@ pub struct RelateRun {
 }
 
 /// Attach the DuckDB at `path` read-only, type its columns with the best typing
-/// available, discover edges, and assemble the descriptor — the one call the
-/// CLI needs.
+/// available, and [`run_session`] over it.
 pub fn run_path(path: &str) -> Result<RelateRun, EvidenceError> {
     let s = Session::attach(std::path::Path::new(path), TypingRequest::Best)?;
     run_session(&s)
 }
 
-/// Measure and type the session's columns, then [`run_with`] over all its
-/// tables.
+/// Measure and type the session's columns, then [`run_parts_with`] over all
+/// its tables: the same edges and descriptor `dovetail relate` writes.
 pub fn run_session(s: &Session) -> Result<RelateRun, EvidenceError> {
     let cols = evidence::column_evidence(s)?;
-    let tables = table_names(&cols);
-    run_with(s, &cols, &tables)
+    Ok(run_parts_with(s, &cols)?.1)
+}
+
+/// Find the combinations among `cols`' tables, then [`run_with_skipping`]
+/// over every table, leaving out joins between two parts of one combination.
+/// Returns the combinations with the run.
+pub fn run_parts_with(
+    s: &Session,
+    cols: &[ColumnEvidence],
+) -> Result<(Vec<Combination>, RelateRun), EvidenceError> {
+    let combinations = find_combinations(s, cols)?;
+    let siblings = |child: &str, parent: &str| {
+        combinations
+            .iter()
+            .any(|c| c.parts.iter().any(|p| p == child) && c.parts.iter().any(|p| p == parent))
+    };
+    let run = run_with_skipping(s, cols, &table_names(cols), &siblings)?;
+    Ok((combinations, run))
 }
 
 /// Discover the edges among `tables` and assemble their descriptor, from column

@@ -20,7 +20,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use crate::combine::{find_combinations, run_combined_with, Combination};
+use crate::combine::{run_combined_with, Combination};
 use crate::evidence::{column_evidence, is_audit_name, ColumnEvidence, EvidenceError, Session};
 use crate::finetype_ext::{TypingRequest, TypingSource};
 use crate::relate::{self, singularise, ColumnRef, Edge, EdgeStatus, RelateRun};
@@ -727,13 +727,7 @@ pub struct PartsRun {
 /// combination.
 pub fn run_parts(s: &Session) -> Result<PartsRun, EvidenceError> {
     let columns = column_evidence(s)?;
-    let combinations = find_combinations(s, &columns)?;
-    let siblings = |child: &str, parent: &str| {
-        combinations
-            .iter()
-            .any(|c| c.parts.iter().any(|p| p == child) && c.parts.iter().any(|p| p == parent))
-    };
-    let relate = relate::run_with_skipping(s, &columns, &relate::table_names(&columns), &siblings)?;
+    let (combinations, relate) = relate::run_parts_with(s, &columns)?;
     Ok(PartsRun {
         columns,
         combinations,
