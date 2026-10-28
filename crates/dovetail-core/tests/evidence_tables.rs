@@ -120,6 +120,11 @@ fn self_reference_needs_a_self_pointer_name() {
                  CAST(41 - i AS INTEGER) AS store_number FROM range(1, 41) t(i);",
             "stores",
         ),
+        (
+            "CREATE TABLE staff AS SELECT CAST(i AS INTEGER) AS staff_id,
+                 CAST(i % 5 + 1 AS INTEGER) AS manager_rating FROM range(1, 41) t(i);",
+            "staff",
+        ),
     ] {
         let (t, _) = measure(sql, table);
         assert!(t.self_references.is_empty(), "{table}: {t:#?}");
@@ -130,6 +135,9 @@ fn self_reference_needs_a_self_pointer_name() {
                FROM range(1, 13) t(i);";
     let (t, _) = measure(sql, "categories");
     assert_eq!(t.self_references, vec!["parent_category_id"]);
+    let sql = sql.replace("parent_category_id", "category_parent_id");
+    let (t, _) = measure(&sql, "categories");
+    assert_eq!(t.self_references, vec!["category_parent_id"]);
 }
 
 #[test]

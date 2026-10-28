@@ -39,8 +39,10 @@ pub const AUDIT_TIME_NAMES: &[&str] = &[
 
 /// Column names that refer to another row of the same table, such as an
 /// employee's manager. A name counts lower-cased, with a trailing `_id` or `id`
-/// dropped, when it is an entry or starts with an entry and `_`: so
-/// `manager_id`, `ParentId` and `parent_category_id` count. A column needs
+/// dropped, when what is left is an entry; or, when it did end in `_id` or
+/// `id`, starts with an entry and `_` or ends with `_` and an entry. So
+/// `manager_id`, `ParentId`, `parent_category_id` and `category_parent_id`
+/// count, and `manager_rating` does not. A column needs
 /// such a name to be a self-reference: a dense integer key otherwise contains
 /// every small count in the table, and a name such as `order_priority` shares
 /// only the table's own prefix.
@@ -58,15 +60,17 @@ pub const SELF_POINTER_NAMES: &[&str] = &[
 /// Whether `name` is one of [`SELF_POINTER_NAMES`], as that list describes.
 pub fn is_self_pointer_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
-    let stem = name
-        .strip_suffix("_id")
-        .or_else(|| name.strip_suffix("id"))
-        .unwrap_or(&name);
+    let stripped = name.strip_suffix("_id").or_else(|| name.strip_suffix("id"));
+    let stem = stripped.unwrap_or(&name);
     SELF_POINTER_NAMES.iter().any(|entry| {
         stem == *entry
-            || stem
-                .strip_prefix(entry)
-                .is_some_and(|rest| rest.starts_with('_'))
+            || (stripped.is_some()
+                && (stem
+                    .strip_prefix(entry)
+                    .is_some_and(|rest| rest.starts_with('_'))
+                    || stem
+                        .strip_suffix(entry)
+                        .is_some_and(|rest| rest.ends_with('_'))))
     })
 }
 
