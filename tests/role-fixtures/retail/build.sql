@@ -49,7 +49,7 @@ FROM range(1, 1501) t(i);
 CREATE TABLE customer_segments AS SELECT
     CAST(c AS INTEGER) AS customer_id,
     CASE (c + m) % 4 WHEN 0 THEN 'bronze' WHEN 1 THEN 'silver' WHEN 2 THEN 'gold' ELSE 'platinum' END AS segment,
-    DATE '2024-01-31' + INTERVAL (m) MONTH AS assessed_on
+    CAST(DATE '2024-01-31' + INTERVAL (m) MONTH AS DATE) AS assessed_on
 FROM range(1, 401) a(c), range(0, 6) b(m);
 
 -- Nothing joins to promo_codes.
