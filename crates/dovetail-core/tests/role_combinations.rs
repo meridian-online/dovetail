@@ -6,19 +6,41 @@ use std::path::Path;
 
 use dovetail_core::combine::{run_combined, CombinedRun};
 use dovetail_core::evidence::{Relation, Session};
-use dovetail_core::finetype_ext::TypingRequest;
+use dovetail_core::finetype_ext::{TypingRequest, TypingSource};
 use dovetail_core::relate::EdgeStatus;
 use dovetail_core::roles::{score_table, CombinationKind, Role};
 
 fn combined(sql: &str) -> (Session, CombinedRun) {
-    let s = Session::from_sql(sql, TypingRequest::Floor).unwrap();
+    combined_with(sql, TypingRequest::Floor)
+}
+
+fn combined_with(sql: &str, typing: TypingRequest) -> (Session, CombinedRun) {
+    let s = Session::from_sql(sql, typing).unwrap();
     let run = run_combined(&s).unwrap();
     (s, run)
 }
 
 fn retail() -> (Session, CombinedRun) {
+    retail_with(TypingRequest::Floor)
+}
+
+fn retail_with(typing: TypingRequest) -> (Session, CombinedRun) {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/role-fixtures/retail");
-    combined(&std::fs::read_to_string(dir.join("build.sql")).unwrap())
+    combined_with(
+        &std::fs::read_to_string(dir.join("build.sql")).unwrap(),
+        typing,
+    )
+}
+
+fn profiled(s: &Session) -> bool {
+    let p = matches!(s.typing, TypingSource::Profiled { .. });
+    if !p {
+        eprintln!(
+            "skipping: FineType's profile is unavailable: {:?}",
+            s.typing
+        );
+    }
+    p
 }
 
 const SUPPLIERS: &str = "
@@ -219,7 +241,21 @@ fn snapshot_child_key_is_carried() {
 
 #[test]
 fn view_columns_are_typed() {
-    let (_, run) = retail();
+    let (s, run) = retail();
+    assert_view_columns_typed(&s, &run);
+}
+
+#[test]
+fn view_columns_are_typed_profiled() {
+    let (s, run) = retail_with(TypingRequest::Best);
+    if profiled(&s) {
+        assert_view_columns_typed(&s, &run);
+    }
+}
+
+/// Every view column has the label its parts agree on, the token is typed
+/// from its kind, and the views' rows are written as inherited.
+fn assert_view_columns_typed(s: &Session, run: &CombinedRun) {
     for c in &run.combinations {
         let token = c.token_column.as_ref().map(|t| t.name.as_str());
         let view_cols: Vec<_> = run.columns.iter().filter(|v| v.table == c.name).collect();
@@ -240,7 +276,26 @@ fn view_columns_are_typed() {
                         .as_deref()
                 })
                 .collect();
-            let agreed = part_labels.iter().flatten().next().copied();
+            // A part where the column holds one value labels it only when
+            // no part with more values does.
+            let varied: Vec<Option<&str>> = c
+                .parts
+                .iter()
+                .map(|p| {
+                    let x = run
+                        .columns
+                        .iter()
+                        .find(|x| &x.table == p && x.column == v.column)
+                        .unwrap();
+                    x.label.as_deref().filter(|_| x.distinct != 1)
+                })
+                .collect();
+            let agreed = varied
+                .iter()
+                .flatten()
+                .next()
+                .or(part_labels.iter().flatten().next())
+                .copied();
             assert_eq!(v.label.as_deref(), agreed, "{}.{}", c.name, v.column);
         }
     }
@@ -253,6 +308,18 @@ fn view_columns_are_typed() {
     assert_eq!(year.label.as_deref(), Some("datetime.component.year"));
     assert_eq!(year.rows, 600);
     assert_eq!(year.distinct, 2);
+    let sources: Vec<String> = s
+        .conn()
+        .prepare(
+            "SELECT DISTINCT label_source FROM memory.main.column_evidence
+             WHERE \"table\" IN ('members', 'price_list', 'suppliers')",
+        )
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+    assert_eq!(sources, vec!["inherited"]);
 }
 
 #[test]
@@ -308,4 +375,138 @@ fn pair_key_snapshot() {
     let t = run.tables.iter().find(|t| t.name == "grades").unwrap();
     assert_eq!(t.key.len(), 3, "{:?}", t.key);
     assert_eq!(t.key[2], "year");
+}
+
+#[test]
+fn snapshot_key_must_be_unique_over_the_combined_rows() {
+    // The 2025 list prices one sku twice, so sku and year is no key.
+    let (_, run) = combined(&format!(
+        "{PRICE_LIST}
+         INSERT INTO price_list_2025 VALUES ('BEV-001', 9.99);"
+    ));
+    let c = &run.combinations[0];
+    assert_eq!(c.kind, CombinationKind::Partition, "{:#?}", c.evidence);
+    assert!(
+        c.evidence.iter().any(|e| e.contains("is not unique")),
+        "{:#?}",
+        c.evidence
+    );
+    let t = run.tables.iter().find(|t| t.name == "price_list").unwrap();
+    assert_ne!(t.key, vec!["sku".to_string(), "year".to_string()]);
+    assert_eq!(t.snapshot_token, None);
+}
+
+#[test]
+fn regional_tables_numbered_alike_are_a_partition() {
+    let (_, run) = combined(
+        "CREATE TABLE stores_north AS SELECT CAST(i AS INTEGER) AS store_id,
+             'North Store ' || CAST(i AS VARCHAR) AS name FROM range(1, 31) t(i);
+         CREATE TABLE stores_south AS SELECT CAST(i AS INTEGER) AS store_id,
+             'South Store ' || CAST(i AS VARCHAR) AS name FROM range(1, 31) t(i);
+         CREATE TABLE visits AS SELECT CAST(i AS INTEGER) AS visit_id,
+             CAST(i % 30 + 1 AS INTEGER) AS store_id,
+             DATE '2024-01-01' + CAST(i % 200 AS INTEGER) AS visited_on
+         FROM range(1, 501) t(i);",
+    );
+    let c = &run.combinations[0];
+    assert_eq!(c.name, "stores");
+    assert_eq!(c.kind, CombinationKind::Partition, "{:#?}", c.evidence);
+    assert!(
+        c.evidence.iter().any(
+            |e| e.contains("overlaps across parts by 100%") && e.contains("local to each part")
+        ),
+        "{:#?}",
+        c.evidence
+    );
+    // The edge stays a relationship candidate, never a carried key; its
+    // parent repeats, so it is suggested and is no pointer.
+    assert!(run.carried.is_empty(), "{:#?}", run.carried);
+    let e = run
+        .edges
+        .iter()
+        .find(|e| {
+            e.child.qualified() == "visits.store_id" && e.parent.qualified() == "stores.store_id"
+        })
+        .expect("visits.store_id -> stores.store_id");
+    assert!(!e.verification.parent_unique);
+    assert_eq!(e.status, EdgeStatus::Suggested, "{}", e.reason);
+}
+
+#[test]
+fn an_impossible_date_in_a_name_is_digits() {
+    let (_, run) = combined(
+        "CREATE TABLE sales_2024_02_30 AS SELECT CAST(i AS INTEGER) AS sale_id FROM range(1, 11) t(i);
+         CREATE TABLE sales_2024_02_31 AS SELECT CAST(i AS INTEGER) AS sale_id FROM range(11, 21) t(i);",
+    );
+    assert_eq!(run.combinations.len(), 1, "{:#?}", run.combinations);
+    let token = run.combinations[0].token_column.as_ref().unwrap();
+    assert_eq!(token.duckdb_type, "VARCHAR");
+    assert_eq!(token.name, "period");
+}
+
+#[test]
+fn a_small_snapshot_still_scores_snapshot() {
+    // Two dates over 60 rows: far above the ratio a natural snapshot's date
+    // keeps, but a combination's token is its as-of time.
+    let (s, run) = combined(
+        "CREATE TABLE rates_2024 AS SELECT 'C' || CAST(i AS VARCHAR) AS currency,
+             CAST(i * 1.5 AS DOUBLE) AS rate FROM range(1, 31) t(i);
+         CREATE TABLE rates_2025 AS SELECT 'C' || CAST(i AS VARCHAR) AS currency,
+             CAST(i * 1.7 AS DOUBLE) AS rate FROM range(1, 31) t(i);",
+    );
+    assert_eq!(run.combinations[0].kind, CombinationKind::Snapshot);
+    let t = run.tables.iter().find(|t| t.name == "rates").unwrap();
+    let call = score_table(t, &run.edges, &run.carried, &s.typing);
+    assert_eq!(call.role, Role::Snapshot, "{call:#?}");
+}
+
+#[test]
+fn a_carried_snapshot_is_not_isolated() {
+    let (s, run) = retail();
+    let t = run.tables.iter().find(|t| t.name == "members").unwrap();
+    assert_eq!(t.snapshot_token.as_deref(), Some("year"));
+    let call = score_table(t, &run.edges, &run.carried, &s.typing);
+    assert_eq!(call.role, Role::Snapshot, "{call:#?}");
+    assert!(
+        call.evidence
+            .iter()
+            .any(|e| e == "member_id, year unique across 600 rows; carried by member_visits"),
+        "{:#?}",
+        call.evidence
+    );
+    assert!(
+        !call
+            .evidence
+            .iter()
+            .any(|e| e.contains("nothing points at")),
+        "{:#?}",
+        call.evidence
+    );
+}
+
+#[test]
+fn constant_columns_do_not_block_grouping_profiled() {
+    // Each part's country is one value, which FineType labels differently
+    // in each; only its type family counts.
+    let (s, run) = combined_with(SUPPLIERS, TypingRequest::Best);
+    if !profiled(&s) {
+        return;
+    }
+    let label = |t: &str| {
+        run.columns
+            .iter()
+            .find(|c| c.table == t && c.column == "country")
+            .unwrap()
+            .label
+            .clone()
+    };
+    eprintln!(
+        "country labels: north {:?}, south {:?}, view {:?}",
+        label("suppliers_north"),
+        label("suppliers_south"),
+        label("suppliers")
+    );
+    assert_eq!(run.combinations.len(), 1, "{:#?}", run.combinations);
+    assert_eq!(run.combinations[0].name, "suppliers");
+    assert_eq!(run.combinations[0].kind, CombinationKind::Partition);
 }

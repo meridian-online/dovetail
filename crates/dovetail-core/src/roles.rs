@@ -143,6 +143,9 @@ pub struct TableEvidence {
     /// Columns whose values all lie in the table's own single-column key,
     /// such as `reports_to`; sorted.
     pub self_references: Vec<String>,
+    /// A snapshot combination's token column: its as-of time, which takes
+    /// one value per part however few rows each part has.
+    pub snapshot_token: Option<String>,
 }
 
 /// One table's role, every role's score, and why.
@@ -344,6 +347,14 @@ pub fn score_table(
         .into_iter()
         .collect();
     let pointers = pointers_out(t, edges, carried);
+    // The tables carrying this snapshot's key: use, though not a pointer.
+    let carried_by: Vec<String> = carried
+        .iter()
+        .filter(|c| c.snapshot == t.name && c.child.table != t.name)
+        .map(|c| c.child.table.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let pointer_columns: BTreeSet<&str> = pointers.iter().map(|p| p.column.as_str()).collect();
     let non_audit: Vec<&TimeColumn> = t.time_columns.iter().filter(|c| !is_audit(c)).collect();
     let event_times: Vec<&TimeColumn> = non_audit
@@ -379,13 +390,19 @@ pub fn score_table(
     });
     let non_key_columns = t.columns.len().saturating_sub(t.key.len());
     // A self-reference only exempts a table from isolation; it earns nothing.
-    let isolated = inbound.is_empty() && pointers.is_empty() && t.self_references.is_empty();
+    let isolated = inbound.is_empty()
+        && carried_by.is_empty()
+        && pointers.is_empty()
+        && t.self_references.is_empty();
 
     // --- Evidence -----------------------------------------------------------
     if has_key {
         let mut s = format!("{} unique across {rows} rows", list(&t.key));
         if !inbound.is_empty() {
             s.push_str(&format!("; pointed at by {}", list(&inbound)));
+        }
+        if !carried_by.is_empty() {
+            s.push_str(&format!("; carried by {}", list(&carried_by)));
         }
         evidence.push(s);
         if t.key_is_identifier {
@@ -652,7 +669,9 @@ fn snapshot_signal(t: &TableEvidence, pointer_columns: &BTreeSet<&str>) -> Optio
     if t.key.len() >= 2 {
         for k in &t.key {
             if let Some(c) = t.time_columns.iter().find(|c| &c.name == k && !is_audit(c)) {
-                if c.distinct as f64 / t.rows as f64 <= SNAPSHOT_MAX_DATE_RATIO + EPS {
+                // A combination's token is its as-of time by construction.
+                let token = t.snapshot_token.as_deref() == Some(k.as_str());
+                if token || c.distinct as f64 / t.rows as f64 <= SNAPSHOT_MAX_DATE_RATIO + EPS {
                     return Some(SnapshotSignal::DatedKey {
                         date: c.name.clone(),
                         distinct: c.distinct,
@@ -706,6 +725,7 @@ mod tests {
             attribute_columns: vec![],
             constant_date: None,
             self_references: vec![],
+            snapshot_token: None,
         }
     }
 
@@ -1388,6 +1408,47 @@ mod tests {
             "{:#?}",
             call.evidence
         );
+    }
+
+    #[test]
+    fn carried_into_snapshot_is_not_isolated() {
+        let mut t = table(
+            "members",
+            60,
+            &["member_id", "tier", "year"],
+            &["member_id", "year"],
+        );
+        t.attribute_columns = strings(&["tier"]);
+        t.time_columns = vec![time("year", 2, false, false)];
+        t.snapshot_token = Some("year".into());
+        let carried = vec![CarriedKey {
+            child: ColumnRef {
+                table: "member_visits".into(),
+                column: "member_id".into(),
+            },
+            snapshot: "members".into(),
+            key: "member_id".into(),
+            overlap: 1.0,
+            child_repeats: true,
+        }];
+        let call = score_table(&t, &[], &carried, &profiled());
+        expect(&call, Role::Snapshot);
+        assert!(
+            call.evidence
+                .iter()
+                .any(|e| e == "member_id, year unique across 60 rows; carried by member_visits"),
+            "{:#?}",
+            call.evidence
+        );
+        assert!(!call
+            .evidence
+            .iter()
+            .any(|e| e.contains("nothing points at")));
+        // 2 dates over 60 rows is far above the ratio a natural snapshot's
+        // date keeps; the token is exempt.
+        t.snapshot_token = None;
+        let call = score_table(&t, &[], &carried, &profiled());
+        assert_eq!(score(&call, Role::Snapshot), 0.0, "{:?}", call.scores);
     }
 
     fn call(table: &str, role: Role) -> RoleCall {

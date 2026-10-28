@@ -101,22 +101,31 @@ fn tokens(name: &str) -> Vec<Token> {
     let mut i = 0;
     while i < runs.len() {
         let r = runs[i];
-        if digits(&r, 4)
+        let number = |r: &(usize, usize, bool)| name[r.0..r.1].parse::<u32>().ok();
+        let month = (digits(&r, 4)
             && i + 1 < runs.len()
             && digits(&runs[i + 1], 2)
-            && joined(&r, &runs[i + 1])
-            && in_range(name, &runs[i + 1], 1, 12)
-        {
-            let mut end = runs[i + 1].1;
-            let mut used = 2;
-            if i + 2 < runs.len()
-                && digits(&runs[i + 2], 2)
-                && joined(&runs[i + 1], &runs[i + 2])
-                && in_range(name, &runs[i + 2], 1, 31)
-            {
-                end = runs[i + 2].1;
-                used = 3;
-            }
+            && joined(&r, &runs[i + 1]))
+        .then(|| (number(&r), number(&runs[i + 1])))
+        .and_then(|(y, m)| Some((y?, m?)))
+        .filter(|(_, m)| (1..=12).contains(m));
+        // A third two-digit run joined on is the day, and must be one of
+        // that month's days, or the runs are no date at all.
+        let day = month.and_then(|_| {
+            (i + 2 < runs.len() && digits(&runs[i + 2], 2) && joined(&runs[i + 1], &runs[i + 2]))
+                .then(|| number(&runs[i + 2]))
+                .flatten()
+        });
+        let valid = match (month, day) {
+            (Some((y, m)), Some(d)) => (1..=days_in_month(y, m)).contains(&d),
+            (Some(_), None) => true,
+            (None, _) => false,
+        };
+        if valid {
+            let (end, used) = match day {
+                Some(_) => (runs[i + 2].1, 3),
+                None => (runs[i + 1].1, 2),
+            };
             out.push(Token {
                 start: r.0,
                 end,
@@ -140,6 +149,17 @@ fn tokens(name: &str) -> Vec<Token> {
         i += 1;
     }
     out
+}
+
+fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        4 | 6 | 9 | 11 => 30,
+        2 if (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400) => {
+            29
+        }
+        2 => 28,
+        _ => 31,
+    }
 }
 
 fn in_range(name: &str, r: &(usize, usize, bool), lo: u32, hi: u32) -> bool {
@@ -218,6 +238,8 @@ pub fn find_combinations(
     let mut out = Vec::new();
     for ((_, kind, _), members) in proposed {
         // The members agreeing on every label both sides have, in name order.
+        // A column of one value is typed from too little to disagree with,
+        // so only its type family counts.
         let mut labels: BTreeMap<&str, &str> = BTreeMap::new();
         let mut parts: Vec<(&str, Token)> = Vec::new();
         for &(table, token) in members {
@@ -228,13 +250,13 @@ pub fn find_combinations(
             let agrees = cols
                 .iter()
                 .all(|c| match (&c.label, labels.get(c.column.as_str())) {
-                    (Some(l), Some(m)) => l == m,
+                    (Some(l), Some(m)) => c.distinct == 1 || l == m,
                     _ => true,
                 });
             if !agrees {
                 continue;
             }
-            for c in cols {
+            for c in cols.iter().filter(|c| c.distinct != 1) {
                 if let Some(l) = &c.label {
                     labels.entry(c.column.as_str()).or_insert(l.as_str());
                 }
@@ -338,29 +360,6 @@ fn classify(
         });
     }
 
-    let kind_of = if key.is_empty() {
-        evidence.push(format!(
-            "{} has no unique key, so the parts are taken as a partition",
-            parts[0]
-        ));
-        CombinationKind::Partition
-    } else {
-        let overlap = key_overlap(s, &parts, &key)?;
-        let snapshot = overlap + 1e-9 >= SNAPSHOT_MIN_KEY_OVERLAP;
-        evidence.push(format!(
-            "the key {} overlaps across parts by {:.0}%, {} {:.0}%",
-            key.join(", "),
-            overlap * 100.0,
-            if snapshot { "at least" } else { "under" },
-            SNAPSHOT_MIN_KEY_OVERLAP * 100.0
-        ));
-        if snapshot {
-            CombinationKind::Snapshot
-        } else {
-            CombinationKind::Partition
-        }
-    };
-
     let (token_name, ty) = token_name_and_type(kind, &tokens);
     let mut token_name = token_name.to_string();
     while columns.contains(&token_name) {
@@ -381,6 +380,52 @@ fn classify(
             )
         })
         .collect();
+    let source_sql = arms.join(" UNION ALL BY NAME ");
+
+    let kind_of = if key.is_empty() {
+        evidence.push(format!(
+            "{} has no unique key, so the parts are taken as a partition",
+            parts[0]
+        ));
+        CombinationKind::Partition
+    } else {
+        let overlap = key_overlap(s, &parts, &key)?;
+        let shared = format!(
+            "the key {} overlaps across parts by {:.0}%",
+            key.join(", "),
+            overlap * 100.0
+        );
+        if overlap + 1e-9 < SNAPSHOT_MIN_KEY_OVERLAP {
+            evidence.push(format!(
+                "{shared}, under {:.0}%",
+                SNAPSHOT_MIN_KEY_OVERLAP * 100.0
+            ));
+            CombinationKind::Partition
+        } else if kind == TokenKind::Word {
+            // A word such as a region names where the rows are, not when:
+            // the same values in two parts are a key local to each part.
+            evidence.push(format!(
+                "{shared}, but {token_name} names a part rather than a time, \
+                 so the key is local to each part and the parts are a partition"
+            ));
+            CombinationKind::Partition
+        } else if !unique_over(s, &source_sql, &key, &token_name)? {
+            evidence.push(format!(
+                "{shared}, but {}, {token_name} is not unique and non-null over the combined rows, \
+                 so the parts are taken as a partition",
+                key.join(", ")
+            ));
+            CombinationKind::Partition
+        } else {
+            evidence.push(format!(
+                "{shared}, at least {:.0}%; {}, {token_name} is unique over the combined rows",
+                SNAPSHOT_MIN_KEY_OVERLAP * 100.0,
+                key.join(", ")
+            ));
+            CombinationKind::Snapshot
+        }
+    };
+
     Ok(Combination {
         name,
         parts,
@@ -390,10 +435,39 @@ fn classify(
             duckdb_type: ty.to_string(),
             values,
         }),
-        source_sql: arms.join(" UNION ALL BY NAME "),
+        source_sql,
         key,
         evidence,
     })
+}
+
+/// Whether `key` plus `token` is non-null and unique on every row of the
+/// combined query `source_sql`. One statement.
+fn unique_over(
+    s: &Session,
+    source_sql: &str,
+    key: &[String],
+    token: &str,
+) -> Result<bool, EvidenceError> {
+    let cols: Vec<String> = key
+        .iter()
+        .map(String::as_str)
+        .chain(std::iter::once(token))
+        .map(quote)
+        .collect();
+    let non_null = cols
+        .iter()
+        .map(|c| format!("{c} IS NOT NULL"))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let sql = format!(
+        "SELECT count(*), count(DISTINCT ({})), count(*) FILTER (WHERE {non_null}) FROM ({source_sql})",
+        cols.join(", ")
+    );
+    let (rows, distinct, filled): (i64, i64, i64) = s
+        .conn()
+        .query_row(&sql, [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+    Ok(distinct == rows && filled == rows)
 }
 
 fn token_name_and_type(kind: TokenKind, tokens: &[&str]) -> (&'static str, &'static str) {
@@ -527,7 +601,7 @@ pub fn create_views(s: &Session, combos: &[Combination]) -> Result<Vec<Dataset>,
 /// `cols` and, after them, each combination's view measured: counts over the
 /// view, each column labelled as its parts agree, and the token column
 /// labelled from its type. The views' rows are added to
-/// `memory.column_evidence`. FineType's profile never runs over a view.
+/// `memory.column_evidence`, their label source `inherited`. FineType's profile never runs over a view.
 pub fn view_column_evidence(
     s: &Session,
     combos: &[Combination],
@@ -548,10 +622,7 @@ pub fn view_column_evidence(
         for ((column, ty), (rows, non_null, distinct)) in described.iter().zip(counts) {
             let label = match token {
                 Some(t) if &t.name == column => token_label(&t.duckdb_type),
-                _ => cols
-                    .iter()
-                    .filter(|x| c.parts.contains(&x.table) && &x.column == column)
-                    .find_map(|x| x.label.clone()),
+                _ => agreed_label(cols, &c.parts, column),
             };
             added.push(ColumnEvidence {
                 table: c.name.clone(),
@@ -565,10 +636,25 @@ pub fn view_column_evidence(
             });
         }
     }
-    write_column_evidence(s, &added, false)?;
+    write_column_evidence(s, &added, false, true)?;
     let mut out = cols.to_vec();
     out.extend(added);
     Ok(out)
+}
+
+/// The label a view's column takes from its parts: the first part's label
+/// among the parts where the column holds more than one value, which the
+/// grouping made agree; else the first part's label at all.
+pub fn agreed_label(cols: &[ColumnEvidence], parts: &[String], column: &str) -> Option<String> {
+    let of_parts = || {
+        parts
+            .iter()
+            .filter_map(|p| cols.iter().find(|x| &x.table == p && x.column == column))
+    };
+    of_parts()
+        .filter(|x| x.distinct != 1)
+        .find_map(|x| x.label.clone())
+        .or_else(|| of_parts().find_map(|x| x.label.clone()))
 }
 
 /// Score `measured` into edges, taking out each edge to a snapshot's entity
@@ -706,6 +792,28 @@ mod tests {
         assert_eq!(cut("orders_7")[1], ("orders".into(), TokenKind::Digits));
         // A name of one token leaves nothing to call the combination.
         assert!(cut("customers").is_empty());
+    }
+
+    #[test]
+    fn only_real_dates_are_dates() {
+        let kinds = |n: &str| tokens(n).iter().map(|t| t.kind).collect::<Vec<_>>();
+        assert_eq!(
+            kinds("sales_2024_02_29"),
+            vec![TokenKind::Word, TokenKind::Date]
+        );
+        assert_eq!(
+            kinds("sales_2023_02_29"),
+            vec![
+                TokenKind::Word,
+                TokenKind::Year,
+                TokenKind::Digits,
+                TokenKind::Digits
+            ]
+        );
+        assert_eq!(
+            kinds("sales_2024_13"),
+            vec![TokenKind::Word, TokenKind::Year, TokenKind::Digits]
+        );
     }
 
     #[test]

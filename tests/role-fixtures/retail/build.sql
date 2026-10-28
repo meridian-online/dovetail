@@ -65,12 +65,12 @@ FROM range(1, 21) t(i);
 CREATE TABLE suppliers_north AS SELECT
     CAST(i AS INTEGER) AS supplier_id,
     'North Supplier ' || CAST(i AS VARCHAR) AS name,
-    (['GB', 'IE', 'NL'])[i % 3 + 1] AS country
+    'UK' AS country
 FROM range(1, 31) t(i);
 CREATE TABLE suppliers_south AS SELECT
     CAST(i AS INTEGER) AS supplier_id,
     'South Supplier ' || CAST(i AS VARCHAR) AS name,
-    (['ES', 'PT', 'IT'])[i % 3 + 1] AS country
+    'ES' AS country
 FROM range(101, 131) t(i);
 
 -- Snapshot pair: the same skus priced in two years.

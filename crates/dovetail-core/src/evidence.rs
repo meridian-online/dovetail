@@ -189,7 +189,7 @@ pub fn column_evidence(s: &Session) -> Result<Vec<ColumnEvidence>, EvidenceError
             });
         }
     }
-    write_column_evidence(s, &evidence, true)?;
+    write_column_evidence(s, &evidence, true, false)?;
     Ok(evidence)
 }
 
@@ -386,15 +386,18 @@ fn with_one_thread<T>(
 }
 
 /// Write `rows` to `memory.column_evidence`, replacing what was there when
-/// `replace`, else adding to it.
+/// `replace`, else adding to it. `inherited` rows took their labels from
+/// other columns (a view's from its parts), so their label source says so.
 pub(crate) fn write_column_evidence(
     s: &Session,
     rows: &[ColumnEvidence],
     replace: bool,
+    inherited: bool,
 ) -> Result<(), EvidenceError> {
-    let label_source = match s.typing {
-        TypingSource::Profiled { .. } => "profiled",
-        TypingSource::Floor { .. } => "floor",
+    let label_source = match (inherited, &s.typing) {
+        (true, _) => "inherited",
+        (false, TypingSource::Profiled { .. }) => "profiled",
+        (false, TypingSource::Floor { .. }) => "floor",
     };
     let create = if replace {
         "CREATE OR REPLACE TABLE"
@@ -997,6 +1000,7 @@ pub(crate) fn measure_table(
         attribute_columns,
         constant_date,
         self_references,
+        snapshot_token: snapshot.map(|k| k.token.clone()),
     })
 }
 
@@ -1176,7 +1180,7 @@ fn write_table_evidence(
              \"table\" VARCHAR, \"rows\" BIGINT, \"columns\" VARCHAR[], \"key\" VARCHAR[],
              key_is_identifier BOOLEAN, pointer_columns VARCHAR[], time_columns {TIME}[],
              label_columns VARCHAR[], attribute_columns VARCHAR[], constant_date VARCHAR,
-             self_references VARCHAR[])"
+             self_references VARCHAR[], snapshot_token VARCHAR)"
     ))?;
     // A list of `n` items, each rendered by `item`, cast to `ty`.
     let list = |n: usize, item: &str, ty: &str| {
@@ -1222,11 +1226,12 @@ fn write_table_evidence(
         let attributes = strings(&t.attribute_columns, &mut params);
         params.push(t.constant_date.clone().map_or(Value::Null, Value::Text));
         let self_references = strings(&t.self_references, &mut params);
+        params.push(t.snapshot_token.clone().map_or(Value::Null, Value::Text));
         s.conn.execute(
             &format!(
                 "INSERT INTO memory.main.table_evidence VALUES (?, ?, {columns}, {key}, ?, \
                  {pointer_columns}, {times}, {labels}, {attributes}, CAST(? AS VARCHAR), \
-                 {self_references})"
+                 {self_references}, CAST(? AS VARCHAR))"
             ),
             duckdb::params_from_iter(params),
         )?;
