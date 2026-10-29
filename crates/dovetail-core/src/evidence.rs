@@ -345,6 +345,12 @@ pub(crate) fn sample_sql(prefix: &str, table: &str, column: &str, n: usize) -> S
     )
 }
 
+/// The version of how this module asks FineType for a profile and reads its
+/// answer: [`profile_sql`], [`profile_labels`] and [`with_one_thread`]. A
+/// cached profile is stamped with it, so bump it whenever any of the three
+/// changes what a column is labelled.
+pub(crate) const PROFILE_CODE_VERSION: u32 = 1;
+
 /// FineType's profile of each column, with its name as the header hint, in
 /// one statement over the table.
 pub(crate) fn profile_sql(prefix: &str, table: &str, columns: &[&str]) -> String {

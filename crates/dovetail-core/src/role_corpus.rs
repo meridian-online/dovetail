@@ -14,10 +14,11 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::evidence::{column_labels, EvidenceError, LabelKey, Session};
+use crate::evidence::{column_labels, EvidenceError, LabelKey, Session, PROFILE_CODE_VERSION};
 use crate::finetype_ext::{finetype_commit, TypingRequest, TypingSource};
 use crate::relate::quote;
 
@@ -53,19 +54,33 @@ pub fn load_corpus_table(file: &Path, typing: TypingRequest) -> Result<Session, 
 }
 
 /// What a profile cache was made under: the extension's `ft_version()`, the
-/// model directory's SHA-256, and the finetype commit dovetail's `Cargo.lock`
-/// resolved, each labelled. `None` for the floor, which is not cached.
+/// model directory's SHA-256, the finetype commit dovetail's `Cargo.lock`
+/// resolved, the version of dovetail's own profiling code, and the bundled
+/// DuckDB's version, which decides the scan the profile samples; each
+/// labelled. `None` for the floor, which is not cached.
 pub fn profile_cache_stamp(typing: &TypingSource) -> Option<String> {
     match typing {
         TypingSource::Profiled {
             extension_version,
             model_sha256,
         } => Some(format!(
-            "extension {extension_version}; model sha256 {model_sha256}; dovetail's finetype commit {}",
-            finetype_commit()
+            "extension {extension_version}; model sha256 {model_sha256}; dovetail's finetype commit {}; \
+             profile code {PROFILE_CODE_VERSION}; duckdb {}",
+            finetype_commit(),
+            duckdb_version()
         )),
         TypingSource::Floor { .. } => None,
     }
+}
+
+/// The bundled DuckDB's `version()`, read once.
+fn duckdb_version() -> &'static str {
+    static VERSION: OnceLock<String> = OnceLock::new();
+    VERSION.get_or_init(|| {
+        duckdb::Connection::open_in_memory()
+            .and_then(|c| c.query_row("SELECT version()", [], |row| row.get(0)))
+            .unwrap_or_else(|e| format!("unknown ({e})"))
+    })
 }
 
 #[derive(Debug, Serialize, Deserialize)]
