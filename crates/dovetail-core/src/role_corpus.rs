@@ -73,12 +73,20 @@ pub fn profile_cache_stamp(typing: &TypingSource) -> Option<String> {
     }
 }
 
-/// The bundled DuckDB's `version()`, read once.
+/// The bundled DuckDB's version and the commit it was built from, read once.
+/// The commit matters: the workspace's `CXXFLAGS` fixes the version string,
+/// so it alone would not change with the DuckDB source.
 fn duckdb_version() -> &'static str {
     static VERSION: OnceLock<String> = OnceLock::new();
     VERSION.get_or_init(|| {
         duckdb::Connection::open_in_memory()
-            .and_then(|c| c.query_row("SELECT version()", [], |row| row.get(0)))
+            .and_then(|c| {
+                c.query_row(
+                    "SELECT library_version || ' ' || source_id FROM pragma_version()",
+                    [],
+                    |row| row.get(0),
+                )
+            })
             .unwrap_or_else(|e| format!("unknown ({e})"))
     })
 }
@@ -171,4 +179,20 @@ fn write_cache(
     std::fs::write(&tmp, text).map_err(io)?;
     std::fs::rename(&tmp, cache).map_err(io)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duckdb_stamp_carries_the_source_commit() {
+        let v = duckdb_version();
+        let (version, commit) = v.split_once(' ').expect("version and commit");
+        assert!(version.starts_with('v'), "{v}");
+        assert!(
+            commit.len() >= 7 && commit.chars().all(|c| c.is_ascii_hexdigit()),
+            "{v}"
+        );
+    }
 }
