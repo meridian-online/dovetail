@@ -99,7 +99,8 @@ pub struct SetResult {
     pub misses: Vec<String>,
 }
 
-fn role_name(r: Role) -> &'static str {
+/// A role's name as the answer keys spell it.
+pub fn role_name(r: Role) -> &'static str {
     match r {
         Role::Entity => "entity",
         Role::Event => "event",
@@ -237,10 +238,37 @@ pub fn stamp(typing: &TypingSource, dovetail_commit: &str) -> String {
     format!("{finetype}, dovetail {dovetail_commit}")
 }
 
-/// Render `results` as the Markdown eval record: a summary table, then for
-/// each tier and typing a confusion matrix and its misses. Everything is
-/// sorted, by tier, then typing, then set, whatever order `results` is in.
+/// The heading the eval record's corpus section starts at. Everything above
+/// it is tier 1, which [`render_report`] writes; it and everything below are
+/// tiers 2 and 3, written from the fetched corpus.
+pub const CORPUS_HEADING: &str = "# Corpus baseline: tiers 2 and 3";
+
+/// The eval record split at [`CORPUS_HEADING`]: tier 1's part, and the corpus
+/// part from the heading on, empty when the record has none.
+pub fn split_record(record: &str) -> (&str, &str) {
+    let at = record
+        .match_indices(CORPUS_HEADING)
+        .find(|(i, _)| *i == 0 || record[..*i].ends_with('\n'))
+        .map(|(i, _)| i)
+        .unwrap_or(record.len());
+    record.split_at(at)
+}
+
+/// Render `results` as the Markdown eval record: a title and the stamp, then
+/// [`render_results`].
 pub fn render_report(results: &[SetResult], stamp: &str) -> String {
+    let mut s = String::new();
+    s.push_str("# Role eval results\n\n");
+    s.push_str("Each set's role calls scored against its answer key. Written by the `role_eval_harness` test with `DOVETAIL_WRITE_ROLE_RESULTS=1`; everything but the stamp is the same on every run of the same code.\n\n");
+    s.push_str(&format!("Stamp: {stamp}\n\n"));
+    s.push_str(&render_results(results));
+    s
+}
+
+/// A summary table, then for each tier and typing a confusion matrix and its
+/// misses. Everything is sorted, by tier, then typing, then set, whatever
+/// order `results` is in.
+pub fn render_results(results: &[SetResult]) -> String {
     let mut sorted: Vec<&SetResult> = results.iter().collect();
     sorted.sort_by(|a, b| {
         (a.tier, &a.typing, &a.set)
@@ -249,10 +277,6 @@ pub fn render_report(results: &[SetResult], stamp: &str) -> String {
     });
 
     let mut s = String::new();
-    s.push_str("# Role eval results\n\n");
-    s.push_str("Each set's role calls scored against its answer key. Written by the `role_eval_harness` test with `DOVETAIL_WRITE_ROLE_RESULTS=1`; everything but the stamp is the same on every run of the same code.\n\n");
-    s.push_str(&format!("Stamp: {stamp}\n\n"));
-
     s.push_str("## Summary\n\n");
     s.push_str(
         "| set | tier | typing | tables | role accuracy | fold P / R | combination P / R |\n",

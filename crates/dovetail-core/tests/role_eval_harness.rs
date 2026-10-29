@@ -15,7 +15,9 @@ use dovetail_core::combine::Combination;
 use dovetail_core::evidence::Session;
 use dovetail_core::finetype_ext::{TypingRequest, TypingSource};
 use dovetail_core::relate::RelateRun;
-use dovetail_core::role_eval::{render_report, score_set, stamp, RoleScorer, ScorePerRole};
+use dovetail_core::role_eval::{
+    render_report, score_set, split_record, stamp, RoleScorer, ScorePerRole,
+};
 use dovetail_core::role_key::{
     load_answer_key, AnswerKey, CombinationKind, ExpectedCombination, ExpectedFold, ExpectedTable,
     Role,
@@ -274,8 +276,10 @@ fn dovetail_commit() -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-/// Both typings' tier-1 runs, rendered, match the committed record apart from
-/// its stamp. `DOVETAIL_WRITE_ROLE_RESULTS=1` writes the record instead.
+/// Both typings' tier-1 runs, rendered, match the committed record's tier-1
+/// part apart from its stamp. `DOVETAIL_WRITE_ROLE_RESULTS=1` writes that part
+/// instead. The corpus part below it is `role_corpus_eval`'s, and is kept as
+/// it is either way.
 #[test]
 fn tier1_record_is_current() {
     let (profiled, key) = retail(TypingRequest::Best);
@@ -286,12 +290,19 @@ fn tier1_record_is_current() {
     let results = [score_set(&floor, &key, 1), score_set(&profiled, &key, 1)];
     let stamp = stamp(&profiled.typing, &dovetail_commit());
     let report = render_report(&results, &stamp);
+    let existing = std::fs::read_to_string(results_path()).unwrap_or_default();
+    let (record, corpus) = split_record(&existing);
     if std::env::var_os("DOVETAIL_WRITE_ROLE_RESULTS").is_some() {
         std::fs::create_dir_all(results_path().parent().unwrap()).unwrap();
-        std::fs::write(results_path(), &report).expect("write RESULTS.md");
+        let mut whole = report.clone();
+        if !corpus.is_empty() {
+            whole.push('\n');
+            whole.push_str(corpus);
+        }
+        std::fs::write(results_path(), whole).expect("write RESULTS.md");
         return;
     }
-    let record = std::fs::read_to_string(results_path()).expect("read RESULTS.md");
+    assert!(!existing.is_empty(), "RESULTS.md is missing");
     let unstamped = |s: &str| -> Vec<String> {
         s.lines()
             .filter(|l| !l.starts_with("Stamp: "))
@@ -299,8 +310,8 @@ fn tier1_record_is_current() {
             .collect()
     };
     assert_eq!(
-        unstamped(&record),
-        unstamped(&report),
+        unstamped(record.trim_end()),
+        unstamped(report.trim_end()),
         "RESULTS.md is stale; rerun with DOVETAIL_WRITE_ROLE_RESULTS=1\n{report}"
     );
 }

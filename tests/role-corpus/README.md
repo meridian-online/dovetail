@@ -10,6 +10,16 @@ The tables dovetail's role calls are scored against, in three tiers. Only the an
 
 `RESULTS.md` is the eval record: the report of each run, which changes only when the scorer's calls change.
 
+## Running the eval
+
+Tier 1 is `role_eval_harness`, which CI runs; its part of `RESULTS.md` ends at the heading `# Corpus baseline: tiers 2 and 3`. Tiers 2 and 3 are `corpus_baseline` in `role_corpus_eval`, which skips without `DOVETAIL_CORPUS` and FineType's extension and model (the two variables `scripts/fetch-finetype.sh` prints), and rewrites the record from that heading on:
+
+```bash
+DOVETAIL_CORPUS=/path/to/corpus cargo test -p dovetail-core --test role_corpus_eval -- --nocapture
+```
+
+It scores every database and every sampled table floor-only and profiled. A table or database that fails to load or score is listed under the record's `Skipped` heading rather than failing the run. FineType's profile is cached beside the data, in `ctu/<db>/.profile.json` and `.<file>.profile.json` beside each GitTables file, stamped with the extension's version, the model's SHA-256 and the finetype commit dovetail builds against; a cache with another stamp is profiled again. The same test file's `answer_keys_are_consistent` checks the answer keys against themselves and against the fetch script's list, with no data.
+
 ## Fetching
 
 ```bash

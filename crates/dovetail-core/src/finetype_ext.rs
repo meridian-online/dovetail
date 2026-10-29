@@ -55,6 +55,13 @@ pub fn finetype_tag() -> &'static str {
     env!("DOVETAIL_FINETYPE_TAG")
 }
 
+/// The finetype commit `Cargo.lock` resolved the pinned tag to, which is what
+/// dovetail's in-process finetype crates were built from; `unknown` when the
+/// build had no lock file.
+pub fn finetype_commit() -> &'static str {
+    env!("DOVETAIL_FINETYPE_COMMIT")
+}
+
 /// Which typing a run asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypingRequest {

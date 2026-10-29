@@ -12,7 +12,7 @@
 //! `SESSION_PREFIX` for a session and empty for a bare connection), so the
 //! same measurements run on a connection dovetail must never write to.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use duckdb::Connection;
@@ -89,7 +89,13 @@ pub struct Session {
     pub typing: TypingSource,
     /// The attached database's path, or `:memory:` for one built in memory.
     source: String,
+    /// Labels already known, by [`LabelKey`]; [`column_evidence`] types only
+    /// the columns missing from it.
+    known_labels: BTreeMap<LabelKey, Option<String>>,
 }
+
+/// A column's table, name and DuckDB type: what a known label is filed under.
+pub type LabelKey = (String, String, String);
 
 impl Session {
     /// Attach the DuckDB file at `db_path` read-only.
@@ -127,12 +133,22 @@ impl Session {
         &self.source
     }
 
+    /// Give the session labels already worked out under its own typing, such
+    /// as a cached profile, so [`column_evidence`] does not type those columns
+    /// again. The caller vouches that they came from the same typing as
+    /// [`Session::typing`]; a column whose table, name or DuckDB type is not
+    /// among them is typed as usual.
+    pub fn set_known_labels(&mut self, labels: BTreeMap<LabelKey, Option<String>>) {
+        self.known_labels = labels;
+    }
+
     fn with_typing(conn: Connection, typing: TypingRequest, source: &str) -> Session {
         let typing = finetype_ext::load(&conn, typing);
         Session {
             conn,
             typing,
             source: source.to_string(),
+            known_labels: BTreeMap::new(),
         }
     }
 }
@@ -163,15 +179,7 @@ pub struct ColumnEvidence {
 /// order, and write the rows to `memory.column_evidence`.
 pub fn column_evidence(s: &Session) -> Result<Vec<ColumnEvidence>, EvidenceError> {
     let columns = list_columns(s.conn(), "src")?;
-    let profiled = matches!(s.typing, TypingSource::Profiled { .. });
-    let labels = if profiled {
-        with_one_thread(s.conn(), |conn| {
-            label_tables(conn, SESSION_PREFIX, &columns, profile_labels)
-        })?
-    } else {
-        label_tables(s.conn(), SESSION_PREFIX, &columns, floor_labels)?
-    };
-    let mut labels = labels.into_iter();
+    let mut labels = column_labels_of(s, &columns)?.into_iter();
     let mut evidence = Vec::with_capacity(columns.len());
     for (table, cols) in group_by_table(&columns) {
         let names: Vec<&str> = cols.iter().map(|c| c.column.as_str()).collect();
@@ -191,6 +199,49 @@ pub fn column_evidence(s: &Session) -> Result<Vec<ColumnEvidence>, EvidenceError
     }
     write_column_evidence(s, &evidence, true, false)?;
     Ok(evidence)
+}
+
+/// Every column of the session's `src` labelled under its typing, by
+/// [`LabelKey`]: the known labels where the session has them, the rest typed
+/// now. This is the typing [`column_evidence`] uses, without the counts.
+pub fn column_labels(s: &Session) -> Result<BTreeMap<LabelKey, Option<String>>, EvidenceError> {
+    let columns = list_columns(s.conn(), "src")?;
+    let labels = column_labels_of(s, &columns)?;
+    Ok(columns.iter().map(label_key).zip(labels).collect())
+}
+
+fn label_key(c: &ListedColumn) -> LabelKey {
+    (c.table.clone(), c.column.clone(), c.duckdb_type.clone())
+}
+
+/// A label for each of `columns`, in order: the session's known label where
+/// it has one, else typed under the session's typing.
+fn column_labels_of(
+    s: &Session,
+    columns: &[ListedColumn],
+) -> Result<Vec<Option<String>>, EvidenceError> {
+    let unknown: Vec<ListedColumn> = columns
+        .iter()
+        .filter(|c| !s.known_labels.contains_key(&label_key(c)))
+        .cloned()
+        .collect();
+    let typed = if unknown.is_empty() {
+        Vec::new()
+    } else if matches!(s.typing, TypingSource::Profiled { .. }) {
+        with_one_thread(s.conn(), |conn| {
+            label_tables(conn, SESSION_PREFIX, &unknown, profile_labels)
+        })?
+    } else {
+        label_tables(s.conn(), SESSION_PREFIX, &unknown, floor_labels)?
+    };
+    let mut typed = typed.into_iter();
+    Ok(columns
+        .iter()
+        .map(|c| match s.known_labels.get(&label_key(c)) {
+            Some(known) => known.clone(),
+            None => typed.next().flatten(),
+        })
+        .collect())
 }
 
 /// Whether `name` is one of [`AUDIT_TIME_NAMES`], ignoring case, or one of
