@@ -12,12 +12,14 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 mod meridian;
+mod project;
 mod wire;
 
 pub use meridian::{
     Combination, DatasetMeta, DecidedBy, Evidence, FieldMeta, Grade, ModelMeta, RelationshipMeta,
     Role, SkippedSource, Typing, Verified,
 };
+pub use project::{project, Provenance};
 pub use wire::{read, write};
 
 /// The Ossie specification version dovetail writes.
