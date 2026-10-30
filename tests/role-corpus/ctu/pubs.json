@@ -1,0 +1,20 @@
+{
+  "name": "pubs",
+  "tables": {
+    "authors": { "role": "entity", "why": "One row per author keyed by au_id with name, phone and address; titleauthor points at it." },
+    "discounts": { "role": "entity", "why": "Three discount schemes, unique by discounttype, with quantity bands and a discount amount, one tied to a store; amounts describe the scheme, so not a pure label." },
+    "employee": { "role": "entity", "why": "One row per employee keyed by emp_id, pointing at jobs and publishers; hire_date is a business date." },
+    "jobs": { "role": "reference", "why": "14 job descriptions keyed by job_id with the level range each allows, pointed at only by employee." },
+    "pub_info": { "role": "entity", "why": "One row per publisher keyed by pub_id (a unique pointer to publishers) with a logo and PR text, a one-to-one extension of publishers." },
+    "publishers": { "role": "entity", "why": "Eight publishers keyed by pub_id with name and location; titles, employee and pub_info point at it." },
+    "roysched": { "role": "entity", "why": "Royalty bands per title (title_id with a low and high sales range and a royalty rate); no time column and one pointer, so attribute rows of titles keyed by title and range." },
+    "sales": { "role": "event", "why": "One row per title on a store order, stamped with ord_date, pointing at stores and titles." },
+    "stores": { "role": "entity", "why": "Six bookshops keyed by stor_id with name and address; sales and discounts point at it." },
+    "titleauthor": { "role": "bridge", "why": "Many-to-many link of au_id and title_id, keyed by the pair, with author order and royalty share on the link." },
+    "titles": { "role": "entity", "why": "One row per book keyed by title_id, pointing at publishers; sales, titleauthor and roysched point at it; pubdate is a business date." }
+  },
+  "folds": [
+    { "reference": "jobs", "into": "employee" }
+  ],
+  "combinations": []
+}

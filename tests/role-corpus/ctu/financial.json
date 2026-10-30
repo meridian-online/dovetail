@@ -1,0 +1,15 @@
+{
+  "name": "financial",
+  "tables": {
+    "account": { "role": "entity", "why": "One row per bank account keyed by account_id; disp, loan, order and trans point at it, and its date is the opening date, a business date." },
+    "card": { "role": "entity", "why": "One row per issued card keyed by card_id, pointing at disp; issued is the card's issue date, a business date on the card." },
+    "client": { "role": "entity", "why": "One row per bank client keyed by client_id, pointing at district; disp points at it and birth_date is a business date." },
+    "disp": { "role": "bridge", "why": "Links clients to accounts (client_id, account_id) with an OWNER/DISPONENT type on the link; card points at it." },
+    "district": { "role": "entity", "why": "77 districts keyed by district_id with name, region and demographic figures; account and client point at it." },
+    "loan": { "role": "entity", "why": "One loan per account keyed by loan_id, with amount, duration, payments and status; date is when it was granted and the account pointer never repeats." },
+    "order": { "role": "entity", "why": "Standing payment orders keyed by order_id, pointing at account with recipient bank, account and amount; no time column." },
+    "trans": { "role": "event", "why": "One row per account transaction, stamped with date; account_id repeats across about a million rows." }
+  },
+  "folds": [],
+  "combinations": []
+}

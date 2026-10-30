@@ -31,6 +31,9 @@ duckdb = { version = "=1.20000.0", features = ["bundled"] }
 jaq-core = "3"
 jaq-std = "3"
 jaq-json = "2"
+# A private, unpredictably named directory to stage FineType's extension under
+# the file name DuckDB loads it by.
+tempfile = "3"
 
 [dev-dependencies]
 # Descriptor conformance is checked in the test suite only — jsonschema

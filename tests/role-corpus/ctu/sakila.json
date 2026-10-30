@@ -1,0 +1,27 @@
+{
+  "name": "sakila",
+  "tables": {
+    "actor": { "role": "entity", "why": "One row per actor keyed by actor_id with first and last name; film_actor points at it; last_update is audit." },
+    "address": { "role": "entity", "why": "One row per postal address keyed by address_id, pointing at city; customer, staff and store point at it." },
+    "category": { "role": "reference", "why": "16 film category names keyed by category_id, pointed at only by film_category." },
+    "city": { "role": "entity", "why": "600 cities keyed by city_id, pointing at country; address points at it. A place in a geographic hierarchy rather than a code label." },
+    "country": { "role": "reference", "why": "109 country names keyed by country_id, pointed at only by city." },
+    "customer": { "role": "entity", "why": "One row per customer keyed by customer_id, pointing at store and address; rental and payment point at it; create_date and last_update are audit-like." },
+    "film": { "role": "entity", "why": "One row per film keyed by film_id, pointing at language; inventory, film_actor and film_category point at it." },
+    "film_actor": { "role": "bridge", "why": "Pure link of actor_id and film_id, keyed by the pair, with only an audit last_update." },
+    "film_category": { "role": "bridge", "why": "Pure link of film_id and category_id, keyed by the pair, with only an audit last_update." },
+    "film_text": { "role": "entity", "why": "One row per film keyed by film_id with title and description, a one-to-one copy of film's text kept for full-text search." },
+    "inventory": { "role": "entity", "why": "One row per physical copy keyed by inventory_id, pointing at film and store; rental points at it." },
+    "language": { "role": "reference", "why": "Six language names keyed by language_id, pointed at only by film (through language_id and original_language_id)." },
+    "payment": { "role": "event", "why": "One row per payment, stamped with payment_date, pointing at customer, staff and rental." },
+    "rental": { "role": "event", "why": "One row per rental, stamped with rental_date, pointing at inventory, customer and staff; payment points at it." },
+    "staff": { "role": "entity", "why": "Two staff members keyed by staff_id with names, email and address; rental, payment and store point at it." },
+    "store": { "role": "entity", "why": "Two stores keyed by store_id with a manager and an address; customer, staff and inventory point at it." }
+  },
+  "folds": [
+    { "reference": "category", "into": "film_category" },
+    { "reference": "country", "into": "city" },
+    { "reference": "language", "into": "film" }
+  ],
+  "combinations": []
+}

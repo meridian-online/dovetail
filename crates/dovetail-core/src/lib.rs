@@ -5,13 +5,20 @@
 //! The core is pure Rust and holds all behaviour; the `dovetail` CLI is a thin
 //! layer over it.
 
+pub mod combine;
 pub mod datapackage;
 pub mod detect;
 pub mod emit;
 pub mod eval;
+pub mod evidence;
+pub mod finetype_ext;
 pub mod identifiers;
 pub mod nominations;
 pub mod relate;
+pub mod role_corpus;
+pub mod role_eval;
+pub mod role_key;
+pub mod roles;
 pub mod structure;
 pub mod survey;
 pub mod transform;

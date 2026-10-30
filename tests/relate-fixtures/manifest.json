@@ -28,6 +28,27 @@
       "parent": "categories.id",
       "status": "suggested",
       "why": "orphan-free, FK-shaped naming and decent cardinality, but the parent has a duplicate id so it is not provably unique — surface for review"
+    },
+    {
+      "case": "e-exact-name-key",
+      "child": "orders_e.sku",
+      "parent": "products_e.sku",
+      "status": "accepted",
+      "why": "same column name, full overlap, unique parent of 25 key-shaped values"
+    },
+    {
+      "case": "f-small-unique-attribute",
+      "child": "customers_f.city",
+      "parent": "stores_f.city",
+      "status": "rejected",
+      "why": "small unique attribute column, not a key"
+    },
+    {
+      "case": "g-unique-names",
+      "child": "members_g.full_name",
+      "parent": "people_g.full_name",
+      "status": "rejected",
+      "why": "untyped, not key-shaped (values hold spaces)"
     }
   ]
 }

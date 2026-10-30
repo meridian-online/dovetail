@@ -1,0 +1,15 @@
+{
+  "name": "ccs",
+  "tables": {
+    "customers": { "role": "entity", "why": "One row per customer keyed by CustomerID with segment and currency; transactions, transactions_1k and yearmonth point at it." },
+    "gasstations": { "role": "entity", "why": "One row per gas station keyed by GasStationID with chain, country and segment; the transaction tables point at it." },
+    "products": { "role": "reference", "why": "591 product codes with a description only; transactions_1k is the only table with rows that points at it (transactions is empty), so it folds there." },
+    "transactions": { "role": "unclear", "why": "Empty: the column names say card transactions, but there are no rows to place it from." },
+    "transactions_1k": { "role": "event", "why": "One row per card purchase keyed by TransactionID, stamped with Date and Time; customer, station and product repeat." },
+    "yearmonth": { "role": "snapshot", "why": "Each customer's monthly consumption, keyed by CustomerID plus Date with 21 months over 383,282 rows." }
+  },
+  "folds": [
+    { "reference": "products", "into": "transactions_1k" }
+  ],
+  "combinations": []
+}

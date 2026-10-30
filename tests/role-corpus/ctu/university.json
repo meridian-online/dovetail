@@ -1,0 +1,12 @@
+{
+  "name": "university",
+  "tables": {
+    "RA": { "role": "bridge", "why": "Links professors to the students who assist them, with capability and salary on the link; the pair is the key." },
+    "course": { "role": "entity", "why": "Ten courses keyed by course_id with rating and difficulty attributes; registration points at it." },
+    "prof": { "role": "entity", "why": "Six professors keyed by prof_id with popularity and teaching ability; RA points at it." },
+    "registration": { "role": "bridge", "why": "Links students to courses with grade and satisfaction on the link and no time column." },
+    "student": { "role": "entity", "why": "One row per student keyed by student_id with intelligence and ranking; RA and registration point at it." }
+  },
+  "folds": [],
+  "combinations": []
+}

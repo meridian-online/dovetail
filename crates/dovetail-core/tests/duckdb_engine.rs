@@ -16,19 +16,9 @@ fn the_bundled_duckdb_is_2_0_0() {
     );
 }
 
-/// The finetype tag dovetail pins, read from the workspace manifest, without its
-/// leading `v`.
+/// The finetype tag dovetail pins, without its leading `v`.
 fn pinned_finetype_version() -> &'static str {
-    let manifest = include_str!("../../../Cargo.toml");
-    let line = manifest
-        .lines()
-        .find(|line| line.starts_with("finetype-core"))
-        .expect("the workspace Cargo.toml declares finetype-core");
-    let tag = line
-        .split("tag = \"")
-        .nth(1)
-        .and_then(|rest| rest.split('"').next())
-        .expect("finetype-core is pinned to a tag");
+    let tag = dovetail_core::finetype_ext::finetype_tag();
     tag.strip_prefix('v').unwrap_or(tag)
 }
 

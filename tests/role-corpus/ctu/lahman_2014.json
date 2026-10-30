@@ -1,0 +1,32 @@
+{
+  "name": "lahman_2014",
+  "tables": {
+    "allstarfull": { "role": "event", "why": "One player's appearance in one all-star game, keyed player, year and game number, with the gameID." },
+    "appearances": { "role": "snapshot", "why": "A player's games by position for one team in one season, keyed year, team and player." },
+    "awardsmanagers": { "role": "event", "why": "One row per award given to a manager in a year and league." },
+    "awardsplayers": { "role": "event", "why": "One row per award given to a player in a year and league; points at players." },
+    "awardssharemanagers": { "role": "event", "why": "One manager's vote tally in one year's award voting, keyed award, year, league and manager." },
+    "awardsshareplayers": { "role": "event", "why": "One player's vote tally in one year's award voting, keyed award, year, league and player." },
+    "batting": { "role": "snapshot", "why": "A player's batting statistics for one season stint, keyed player, year and stint." },
+    "battingpost": { "role": "snapshot", "why": "A player's batting totals for one postseason round, keyed year, round and player." },
+    "els_teamnames": { "role": "unclear", "why": "Team id, name and park combinations, several per team and none dated; it is neither one row per team nor tied to a season." },
+    "fielding": { "role": "snapshot", "why": "A player's fielding statistics at one position for one season stint, keyed player, year, stint and position." },
+    "fieldingof": { "role": "snapshot", "why": "A player's outfield games split by field for one season stint, keyed player, year and stint." },
+    "fieldingpost": { "role": "snapshot", "why": "A player's fielding totals at one position in one postseason round, keyed player, year, round and position." },
+    "halloffame": { "role": "event", "why": "One candidate's ballot result in one year's Hall of Fame vote, keyed hofID and year; players points at it." },
+    "managers": { "role": "snapshot", "why": "A manager's record with one team in one season, keyed year, team and in-season order." },
+    "managershalf": { "role": "snapshot", "why": "A manager's record for each half of the 1981 split season, keyed year, team, manager and half." },
+    "pitching": { "role": "snapshot", "why": "A player's pitching statistics for one season stint, keyed player, year and stint." },
+    "pitchingpost": { "role": "snapshot", "why": "A player's pitching totals for one postseason round, keyed player, year and round." },
+    "players": { "role": "entity", "why": "One row per person with names, birth and death details and ids in other sources; every player table points at it." },
+    "salaries": { "role": "snapshot", "why": "A player's salary with one team in one season, keyed year, team, league and player; 28 distinct years." },
+    "schools": { "role": "entity", "why": "One row per college with name, city, state and nickname; schoolsplayers points at it." },
+    "schoolsplayers": { "role": "snapshot", "why": "Which school each player attended, over yearMin to yearMax: a validity span on a player-to-school link, the player's state over time." },
+    "seriespost": { "role": "event", "why": "One postseason series in a year, naming the winning and losing team." },
+    "teams": { "role": "snapshot", "why": "A team's record for one season, keyed year, league and team; player and manager tables point at it." },
+    "teamsfranchises": { "role": "entity", "why": "One row per franchise with name, active flag and predecessor association; teams and els_teamnames point at it." },
+    "teamshalf": { "role": "snapshot", "why": "A team's record for each half of the 1981 split season, keyed year, team, league and half." }
+  },
+  "folds": [],
+  "combinations": []
+}

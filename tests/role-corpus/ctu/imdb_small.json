@@ -1,0 +1,14 @@
+{
+  "name": "imdb_small",
+  "tables": {
+    "actors": { "role": "entity", "why": "One row per actor keyed by id with name and gender; roles points at it." },
+    "directors": { "role": "entity", "why": "One row per director keyed by id with name; movies_directors and directors_genres point at it." },
+    "directors_genres": { "role": "bridge", "why": "Links a director to a genre with a prob weight on the link; genre is a code with no table of its own." },
+    "movies": { "role": "entity", "why": "One row per film keyed by id with name, year and rank; roles, movies_directors and movies_genres point at it." },
+    "movies_directors": { "role": "bridge", "why": "Pure link of director_id and movie_id, the pair its key." },
+    "movies_genres": { "role": "bridge", "why": "Links a movie to genre codes, (movie_id, genre) its key; genre has no table of its own." },
+    "roles": { "role": "bridge", "why": "Links actors to movies with the role played on the link; no time column." }
+  },
+  "folds": [],
+  "combinations": []
+}

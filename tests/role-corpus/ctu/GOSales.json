@@ -1,0 +1,14 @@
+{
+  "name": "GOSales",
+  "tables": {
+    "go_1k": { "role": "event", "why": "A thousand sales lines keyed by retailer, product and Date, pointing at go_retailers and go_products, stamped with Date." },
+    "go_daily_sales": { "role": "event", "why": "One row per day's sale of a product to a retailer, stamped with Date, with quantity and prices; retailer and product repeat." },
+    "go_methods": { "role": "reference", "why": "Twelve order-method codes with their name, pointed at only by go_daily_sales." },
+    "go_products": { "role": "entity", "why": "One row per product keyed by Product number with line, type, brand, colour, cost and price; the sales tables point at it." },
+    "go_retailers": { "role": "entity", "why": "One row per retailer keyed by Retailer code with name, type and country; the sales tables point at it." }
+  },
+  "folds": [
+    { "reference": "go_methods", "into": "go_daily_sales" }
+  ],
+  "combinations": []
+}

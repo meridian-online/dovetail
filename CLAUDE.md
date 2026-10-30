@@ -26,6 +26,13 @@ brightfield (insight — interactive visualisation).
   status (`suggested` / `accepted` / `rejected`). The canonical output is
   `foreignKeys` in the descriptor; DDL, Mermaid `erDiagram`, and join SQL are
   projections of that. Only `accepted` edges compile to constraints or SQL.
+  It also says what each table is (entity, event, reference, bridge, snapshot
+  or unclear, every role scored, with its evidence), proposes folding a lookup
+  into the one table that uses it, and combines tables that are one kind of
+  thing split across files. Columns are typed first by FineType's DuckDB
+  extension from the pinned release, or by the model-free floor when it is
+  unavailable. The design, its rulings and the role corpus are in
+  `docs/table-roles.md`.
 - Transform shim — pinned access to bundled tools so emitted scripts call
   dovetail's own vendored binaries: `dovetail jaq <program> <file>` (true
   passthrough to embedded jaq, NDJSON out), `dovetail calamine` (Excel),

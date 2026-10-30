@@ -86,6 +86,24 @@ jobs:
       - name: test (no default features)
         run: cargo test --workspace --no-default-features
 
+      # The `test` run above has no FineType extension or model, so the role
+      # eval's tier 1 runs floor-only there and its profiled tests skip. This step
+      # fetches the pinned release's extension and the model it names (the
+      # release assets from GitHub, the weights from the model registry at a
+      # pinned revision, each checked against its published digest), and runs
+      # tier 1 profiled: exact against the retail answer key, and matching the
+      # committed tests/role-corpus/RESULTS.md. DOVETAIL_REQUIRE_PROFILED turns
+      # a skip into a failure, so this step cannot pass without the profile.
+      # Its test binary was built by `test` with default features, so after the
+      # no-default-features steps little or nothing recompiles.
+      - name: role eval, tier 1 profiled
+        env:
+          DOVETAIL_REQUIRE_PROFILED: "1"
+        run: |
+          scripts/fetch-finetype.sh "$RUNNER_TEMP/finetype" > "$RUNNER_TEMP/finetype.env"
+          source "$RUNNER_TEMP/finetype.env"
+          cargo test -p dovetail-core --test role_eval_harness tier1_
+
   # The same gates on macOS, so "green" answers for the platform the
   # `--no-default-features` binary is built and demonstrated on as well as for
   # the runner's. Both jobs above are ubuntu-only, and a job that runs on one

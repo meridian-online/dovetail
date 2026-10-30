@@ -1,0 +1,23 @@
+{
+  "name": "northwind",
+  "tables": {
+    "Categories": { "role": "reference", "why": "Eight product categories keyed by CategoryID with a name, description and picture, pointed at only by Products." },
+    "CustomerCustomerDemo": { "role": "unclear", "why": "Empty: declared as a link of customers to demographic types, but there are no rows to place it from." },
+    "CustomerDemographics": { "role": "unclear", "why": "Empty: declared as a key plus a description, but there are no rows to place it from." },
+    "Customers": { "role": "entity", "why": "One row per customer company keyed by CustomerID with contact and address; Orders points at it." },
+    "EmployeeTerritories": { "role": "bridge", "why": "Pure link of EmployeeID and TerritoryID, keyed by the pair." },
+    "Employees": { "role": "entity", "why": "Nine staff keyed by EmployeeID with names, addresses and birth and hire dates (business dates); Orders points at it and ReportsTo is a self-reference." },
+    "Order Details": { "role": "event", "why": "Lines of an order keyed by OrderID and ProductID with price and quantity; a line item, so an event whose time sits on Orders." },
+    "Orders": { "role": "event", "why": "One row per order, stamped with OrderDate; CustomerID and EmployeeID repeat across orders." },
+    "Products": { "role": "entity", "why": "One row per product keyed by ProductID, pointing at Suppliers and Categories; Order Details points at it." },
+    "Region": { "role": "reference", "why": "Four region names keyed by RegionID, pointed at only by Territories." },
+    "Shippers": { "role": "entity", "why": "Three shipping companies keyed by ShipperID with a name and a phone number, contact details that describe a company; Orders points at it." },
+    "Suppliers": { "role": "entity", "why": "One row per supplier keyed by SupplierID with contact and address; Products points at it." },
+    "Territories": { "role": "entity", "why": "53 sales territories keyed by TerritoryID, pointing at Region; the territory side of the EmployeeTerritories bridge." }
+  },
+  "folds": [
+    { "reference": "Categories", "into": "Products" },
+    { "reference": "Region", "into": "Territories" }
+  ],
+  "combinations": []
+}

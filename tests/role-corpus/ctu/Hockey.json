@@ -1,0 +1,29 @@
+{
+  "name": "Hockey",
+  "tables": {
+    "AwardsCoaches": { "role": "event", "why": "One row per award given to a coach in a year; points at Coaches." },
+    "AwardsMisc": { "role": "event", "why": "One row per Lester Patrick award given in a year to a person or team, named rather than keyed." },
+    "AwardsPlayers": { "role": "event", "why": "One row per award given to a player in a year, keyed player, award and year; points at Master." },
+    "Coaches": { "role": "snapshot", "why": "A coach's record with one team in one season, keyed coach, year, team and stint; points at the team-season." },
+    "CombinedShutouts": { "role": "event", "why": "One row per game in which two goalies shared a shutout, dated by year, month and day." },
+    "Goalies": { "role": "snapshot", "why": "A goalie's season statistics per team stint, keyed player, year and stint." },
+    "GoaliesSC": { "role": "snapshot", "why": "A goalie's Stanley Cup final statistics for a year, keyed player and year." },
+    "GoaliesShootout": { "role": "snapshot", "why": "A goalie's shootout statistics per season stint; seven distinct years across 480 rows." },
+    "HOF": { "role": "entity", "why": "One row per Hall of Fame member, keyed hofID with name, category and induction year; Master points at it." },
+    "Master": { "role": "entity", "why": "One row per person (player or coach) with names, ids in other sources and birth and death details; every player table points at it." },
+    "Scoring": { "role": "snapshot", "why": "A skater's season statistics per team stint, keyed player, year and stint." },
+    "ScoringSC": { "role": "snapshot", "why": "A skater's Stanley Cup final statistics for a year, by player, year and team; fourteen distinct years." },
+    "ScoringShootout": { "role": "snapshot", "why": "A skater's shootout statistics per season stint; seven distinct years across 2,072 rows." },
+    "ScoringSup": { "role": "snapshot", "why": "Supplementary power-play and short-handed assists per player per year; four distinct years." },
+    "SeriesPost": { "role": "event", "why": "One playoff series in a year, pointing at the winning and losing team-season." },
+    "TeamSplits": { "role": "snapshot", "why": "A team's home, road and month-by-month record for one season, keyed year and team." },
+    "TeamVsTeam": { "role": "snapshot", "why": "A team's season record against one opponent, keyed year, team and opponent." },
+    "Teams": { "role": "snapshot", "why": "A team's record for one season, keyed year and team; coach, player and series tables point at it." },
+    "TeamsHalf": { "role": "snapshot", "why": "A team's record for each half of a split season, keyed year, team and half." },
+    "TeamsPost": { "role": "snapshot", "why": "A team's postseason totals for one year, keyed year and team." },
+    "TeamsSC": { "role": "snapshot", "why": "A team's Stanley Cup final totals for one year, keyed year and team." },
+    "abbrev": { "role": "reference", "why": "Fifty-eight codes labelled with full names by type (playoff, division, round, conference); several tables' code columns use it, none declared." }
+  },
+  "folds": [],
+  "combinations": []
+}

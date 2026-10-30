@@ -11,6 +11,20 @@ and date, then open a fresh `[Unreleased]` above it.
 
 ### Added
 
+- **Table roles** — `dovetail relate` calls each table an entity, event,
+  reference, bridge, snapshot or unclear, with every role's score and the
+  evidence behind the call; proposes folding a lookup into the one table that
+  uses it; and combines tables split across files (by year, date, region or
+  shard) as a partition, snapshot or duplicate, measuring joins again against
+  the combined datasets. Measurement runs in DuckDB as evidence tables, typed
+  by FineType's DuckDB extension from the pinned release, with the
+  model-free floor as its fallback. A role corpus (a retail fixture in the
+  repo, 25 CTU databases and 2,000 GitTables tables fetched locally) and an
+  eval harness record the scorer's accuracy in `tests/role-corpus/RESULTS.md`.
+  See `docs/table-roles.md`.
+- An exact-name join to a unique, key-shaped parent (`transactions.sku` to
+  `products.sku`) earns enough key credit to be accepted.
+
 - **Self-assembling descriptor** — one flow now emits a single Frictionless
   descriptor that carries BOTH halves of the model: every field is typed with a
   FineType semantic type (not the coarse SQL family), and the discovered

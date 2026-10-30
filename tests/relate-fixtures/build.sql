@@ -30,3 +30,22 @@ CREATE TABLE categories (id INTEGER, name VARCHAR);
 INSERT INTO categories VALUES (1,'tools'),(2,'home'),(3,'garden'),(3,'garden-dup');
 CREATE TABLE products (id INTEGER, category_id INTEGER, label VARCHAR);
 INSERT INTO products VALUES (1,1,'hammer'),(2,2,'lamp'),(3,3,'rake'),(4,1,'wrench');
+
+-- (e) EXACT-NAME KEY, NOT ID-SHAPED  → expect: accepted
+--     orders_e.sku ⊆ products_e.sku ; 25 unique key-shaped SKUs, full overlap.
+CREATE TABLE products_e AS SELECT 'BEV-' || lpad(CAST(i AS VARCHAR), 3, '0') AS sku FROM range(1, 26) t(i);
+CREATE TABLE orders_e AS SELECT CAST(i AS INTEGER) AS e_no,
+    'BEV-' || lpad(CAST((i % 25) + 1 AS VARCHAR), 3, '0') AS sku FROM range(1, 31) t(i);
+
+-- (f) SMALL UNIQUE ATTRIBUTE  → expect: rejected
+--     customers_f.city ⊆ stores_f.city ; the parent is unique but has 3 values.
+CREATE TABLE stores_f (city VARCHAR);
+INSERT INTO stores_f VALUES ('Leeds'),('York'),('Bath');
+CREATE TABLE customers_f (f_no INTEGER, city VARCHAR);
+INSERT INTO customers_f VALUES (1,'Leeds'),(2,'York'),(3,'Leeds'),(4,'Bath');
+
+-- (g) UNIQUE NAMES, UNTYPED  → expect: rejected
+--     members_g.full_name ⊆ people_g.full_name ; 25 unique values with spaces.
+CREATE TABLE people_g AS SELECT 'Given' || CAST(i AS VARCHAR) || ' Family' || CAST(i AS VARCHAR) AS full_name FROM range(1, 26) t(i);
+CREATE TABLE members_g AS SELECT CAST(i AS INTEGER) AS g_no,
+    'Given' || CAST((i % 25) + 1 AS VARCHAR) || ' Family' || CAST((i % 25) + 1 AS VARCHAR) AS full_name FROM range(1, 31) t(i);

@@ -1,0 +1,10 @@
+{
+  "name": "Walmart_2014",
+  "tables": {
+    "features": { "role": "snapshot", "why": "Each store's weekly conditions (temperature, fuel price, CPI, unemployment, markdowns), keyed by Store plus Date with 181 dates over 8,190 rows." },
+    "stores": { "role": "entity", "why": "45 stores keyed by Store with type and size; features and train point at it." },
+    "train": { "role": "snapshot", "why": "Weekly sales per store and department, keyed by Store, Dept and Date with 144 dates over 421,570 rows: per-period state, not individual sales." }
+  },
+  "folds": [],
+  "combinations": []
+}

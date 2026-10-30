@@ -1,0 +1,17 @@
+{
+  "name": "classicmodels",
+  "tables": {
+    "customers": { "role": "entity", "why": "One row per customer keyed by customerNumber with contact, address and credit limit; orders and payments point at it." },
+    "employees": { "role": "entity", "why": "One row per employee keyed by employeeNumber, pointing at offices; customers point at it and reportsTo is a self-reference." },
+    "offices": { "role": "entity", "why": "Seven offices keyed by officeCode with city, address and phone, columns that describe a place; employees point at it." },
+    "orderdetails": { "role": "event", "why": "Lines of an order keyed by orderNumber and productCode with quantity and price; a line item, so an event whose time sits on orders." },
+    "orders": { "role": "event", "why": "One row per order, stamped with orderDate; customerNumber repeats across orders." },
+    "payments": { "role": "event", "why": "One row per cheque payment, stamped with paymentDate; customerNumber repeats across payments." },
+    "productlines": { "role": "reference", "why": "Seven product-line names with a text description (the HTML and image columns are empty), pointed at only by products." },
+    "products": { "role": "entity", "why": "One row per product keyed by productCode, pointing at productlines; orderdetails points at it." }
+  },
+  "folds": [
+    { "reference": "productlines", "into": "products" }
+  ],
+  "combinations": []
+}

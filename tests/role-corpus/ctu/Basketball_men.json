@@ -1,0 +1,16 @@
+{
+  "name": "Basketball_men",
+  "tables": {
+    "awards_coaches": { "role": "event", "why": "One row per award given to a coach in a year; points at the coach's season in coaches." },
+    "awards_players": { "role": "event", "why": "One row per award given to a player in a year, keyed player, year and award; points at players." },
+    "coaches": { "role": "snapshot", "why": "A coach's record with one team in one season, keyed coach, year, team and stint; points at that team-season." },
+    "draft": { "role": "event", "why": "One row per draft pick in a draft year, naming the selecting team and the player picked." },
+    "player_allstar": { "role": "event", "why": "A player's stat line in one season's all-star game (games_played is always 1), keyed player and season." },
+    "players": { "role": "entity", "why": "One row per player with names, birth details and school; every player table points at it." },
+    "players_teams": { "role": "snapshot", "why": "A player's season statistics with one team, keyed by player, year and stint; the year repeats across rows." },
+    "series_post": { "role": "event", "why": "One playoff series in a year, pointing at the winning and losing team-season." },
+    "teams": { "role": "snapshot", "why": "A team's record for one season, keyed year and team; coaches, draft, series and player stints point at it." }
+  },
+  "folds": [],
+  "combinations": []
+}
