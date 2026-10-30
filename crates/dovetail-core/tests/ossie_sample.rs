@@ -146,3 +146,87 @@ fn parent_duplicates_counted() {
         assert!(!edges[at].verification.parent_unique, "{sample:?}");
     }
 }
+
+/// Two partitioned suppliers, a source table of products pointing at their
+/// combination, and two partitioned shipments pointing at a source table of
+/// stores: a combination as a parent, and as a child.
+const COMBINED: &str = "
+    CREATE TABLE suppliers_north AS
+        SELECT i AS supplier_id, 'North Supplier ' || i AS name FROM range(1, 201) t(i);
+    CREATE TABLE suppliers_south AS
+        SELECT i AS supplier_id, 'South Supplier ' || i AS name FROM range(1001, 1201) t(i);
+    CREATE TABLE products AS
+        SELECT i AS product_id,
+               CASE WHEN i % 2 = 0 THEN (i % 200) + 1 ELSE (i % 200) + 1001 END AS supplier_id
+        FROM range(1, 3001) t(i);
+    CREATE TABLE stores AS
+        SELECT i AS store_id, 'Store ' || i AS store_name FROM range(1, 501) t(i);
+    CREATE TABLE shipments_east AS
+        SELECT i AS shipment_id, (i % 500) + 1 AS store_id FROM range(1, 301) t(i);
+    CREATE TABLE shipments_west AS
+        SELECT i AS shipment_id, (i % 500) + 1 AS store_id FROM range(1001, 1301) t(i);";
+
+/// For each pointer, whether the child's rows outnumber the parent's, as
+/// `score_table` reads them: the child's `rows` against the edge's full
+/// figure for the parent. Also the rows of every dataset.
+type Outnumbering = (Vec<(String, i64)>, Vec<(String, String, bool)>);
+
+fn outnumbering(sample: Option<u64>) -> Outnumbering {
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_db_from(dir.path(), COMBINED);
+    let names = [
+        "suppliers_north",
+        "suppliers_south",
+        "products",
+        "stores",
+        "shipments_east",
+        "shipments_west",
+    ];
+    let s = session(&db, &names, sample);
+    let run = dovetail_core::combine::run_combined(&s).unwrap();
+    let mut combined: Vec<&str> = run.combinations.iter().map(|c| c.name.as_str()).collect();
+    combined.sort();
+    assert_eq!(combined, ["shipments", "suppliers"]);
+    let rows = run
+        .tables
+        .iter()
+        .map(|t| (t.name.clone(), t.rows))
+        .collect();
+    let rows_of = |name: &str| run.tables.iter().find(|t| t.name == name).unwrap().rows;
+    let mut out = Vec::new();
+    for (child, parent) in [("products", "suppliers"), ("shipments", "stores")] {
+        let e = run
+            .edges
+            .iter()
+            .find(|e| e.child.table == child && e.parent.table == parent)
+            .unwrap_or_else(|| panic!("{child} to {parent} in {:#?}", run.edges));
+        out.push((
+            child.to_string(),
+            parent.to_string(),
+            rows_of(child) > e.evidence.parent_full_total,
+        ));
+    }
+    (rows, out)
+}
+
+#[test]
+fn row_counts_compare_on_the_full_basis() {
+    let (full_rows, full_answer) = outnumbering(None);
+    let (rows, answer) = outnumbering(Some(50));
+    // A combination holds the rows of all its parts; a source table all its own.
+    assert_eq!(
+        rows,
+        [
+            ("products".to_string(), 3000),
+            ("shipments".to_string(), 600),
+            ("stores".to_string(), 500),
+            ("suppliers".to_string(), 400),
+        ]
+    );
+    assert_eq!(rows, full_rows);
+    assert_eq!(answer, full_answer);
+    assert!(
+        answer.iter().all(|(_, _, outnumbers)| *outnumbers),
+        "{answer:?}"
+    );
+}

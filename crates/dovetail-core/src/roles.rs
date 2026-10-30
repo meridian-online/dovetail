@@ -424,8 +424,14 @@ pub fn score_table(
         && t.self_references.is_empty();
 
     // --- Evidence -----------------------------------------------------------
+    // What the key and distinct counts were measured on.
+    let basis = if t.sample_rows < rows {
+        format!("in a sample of {} of {rows} rows", t.sample_rows)
+    } else {
+        format!("across {rows} rows")
+    };
     if has_key {
-        let mut s = format!("{} unique across {rows} rows", list(&t.key));
+        let mut s = format!("{} unique {basis}", list(&t.key));
         if !inbound.is_empty() {
             s.push_str(&format!("; pointed at by {}", list(&inbound)));
         }
@@ -437,9 +443,7 @@ pub fn score_table(
             evidence.push(format!("{} typed as an identifier", list(&t.key)));
         }
     } else {
-        evidence.push(format!(
-            "no column or pair of columns is unique across {rows} rows"
-        ));
+        evidence.push(format!("no column or pair of columns is unique {basis}"));
     }
     evidence.extend(pointers.iter().map(|p| p.sentence.clone()));
     evidence.extend(
@@ -497,7 +501,7 @@ pub fn score_table(
     }
     match &snapshot {
         Some(SnapshotSignal::DatedKey { date, distinct }) => evidence.push(format!(
-            "{} unique while {date} takes {distinct} distinct values across {rows} rows",
+            "{} unique while {date} takes {distinct} distinct values {basis}",
             list(&t.key)
         )),
         Some(SnapshotSignal::AsOf { date }) => evidence.push(format!(
@@ -664,7 +668,7 @@ fn pointers_out(t: &TableEvidence, edges: &[Edge], carried: &[CarriedKey]) -> Ve
             Pointer {
                 column: e.child.column.clone(),
                 repeats,
-                parent_rows: Some(e.evidence.parent_total),
+                parent_rows: Some(e.evidence.parent_full_total),
                 sentence,
             },
         ));
@@ -982,6 +986,7 @@ mod tests {
                 parent_distinct: parent_total,
                 parent_total,
                 parent_duplicates: 0,
+                parent_full_total: parent_total,
             },
             verification: Verification {
                 orphan_count: 0,
@@ -1046,6 +1051,25 @@ mod tests {
             ),
         ];
         (t, edges)
+    }
+
+    #[test]
+    fn a_sampled_key_says_what_it_was_measured_on() {
+        let (mut t, edges) = customers_with_inbound();
+        t.sample_rows = 100;
+        let call = score_table(&t, &edges, &[], &profiled());
+        assert!(
+            call.evidence.iter().any(|e| e
+                == "customer_id unique in a sample of 100 of 400 rows; \
+                    pointed at by loyalty_visits, transactions"),
+            "{:#?}",
+            call.evidence
+        );
+        assert!(
+            !call.evidence.iter().any(|e| e.contains("across 400 rows")),
+            "{:#?}",
+            call.evidence
+        );
     }
 
     #[test]

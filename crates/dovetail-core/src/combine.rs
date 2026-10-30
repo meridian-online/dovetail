@@ -624,6 +624,7 @@ pub fn create_views(s: &Session, combos: &[Combination]) -> Result<Vec<Dataset>,
             c.source_sql
         ))?;
         let mut d = Dataset::view(&c.name);
+        d.parts = c.parts.clone();
         if c.kind == CombinationKind::Snapshot {
             if let Some(token) = &c.token_column {
                 d.snapshot = Some(SnapshotKey {

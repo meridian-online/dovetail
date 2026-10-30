@@ -63,6 +63,9 @@ pub struct Evidence {
     /// Parent key values held by more than one parent row, NULLs left out. Not
     /// part of the descriptor's foreign key evidence.
     pub parent_duplicates: i64,
+    /// The parent's non-null key rows on the full data, which `parent_total`
+    /// is unless the session is sampled and the parent a combination.
+    pub parent_full_total: i64,
 }
 
 /// Verification of referential integrity against the full data.
@@ -296,9 +299,16 @@ pub fn discover_with_types(conn: &Connection, types: &SemanticTypes) -> duckdb::
     // Fully qualified, so no analyst table is shadowed by the query's own CTE.
     let catalog = current_database(conn)?;
     let relation = |table: &str| format!("{}.main.{}", quote(&catalog), quote(table));
-    let measured =
-        evidence::measure_edges(conn, &relation, &|_| None, &cols, &tables, &|_, _| false)
-            .map_err(into_duckdb)?;
+    let measured = evidence::measure_edges(
+        conn,
+        &relation,
+        &|_| None,
+        &|_| None,
+        &cols,
+        &tables,
+        &|_, _| false,
+    )
+    .map_err(into_duckdb)?;
     Ok(measured.iter().map(edge_from_evidence).collect())
 }
 
@@ -702,6 +712,7 @@ pub fn edge_from_evidence(e: &EdgeEvidence) -> Edge {
         parent_distinct,
         parent_total,
         parent_duplicates: e.parent_duplicates,
+        parent_full_total: e.parent_full_total,
     };
     let verification = Verification {
         orphan_count,
