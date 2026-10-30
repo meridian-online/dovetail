@@ -57,9 +57,13 @@ datasets:
   custom_extensions:
   - vendor_name: OTHER
     data: '{"k":1}'
+custom_extensions:
+- vendor_name: MERIDIAN
+  data: '{"generator":"g","skipped_sources":[{"path":"p.bin","reason":"binary","hint":"z"}]}'
 "#;
     let m = read(yaml).unwrap();
     let out = write(&m);
+    assert!(out.contains(r#""hint":"z""#), "{out}");
     assert!(out.contains("label: x"), "{out}");
     assert!(out.contains("unique_keys"), "{out}");
     assert!(out.contains("vendor_name: OTHER"), "{out}");
@@ -150,4 +154,19 @@ custom_extensions:
         "{out}"
     );
     assert_eq!(read(&out).unwrap(), m);
+}
+
+#[test]
+fn a_rejected_list_with_unsafe_values_still_writes_and_reads() {
+    let mut m = read(FIXTURE).unwrap();
+    m.relationships[0].meta.evidence.value_overlap = f64::NAN;
+    let mut rejected = m.relationships[1].clone();
+    let odd: serde_yaml::Value = serde_yaml::from_str("{1: .nan, a: .inf}").unwrap();
+    rejected.extras.insert("odd".to_string(), odd);
+    m.meta.rejected.push(rejected);
+    let out = write(&m);
+    let back = read(&out).unwrap();
+    assert_eq!(back.relationships[0].meta.evidence.value_overlap, 0.0);
+    assert_eq!(back.meta.rejected.len(), 1);
+    assert!(back.meta.rejected[0].extras.contains_key("odd"));
 }

@@ -184,7 +184,9 @@ fn relationship_from_wire(r: WireRelationship) -> Result<Relationship, OssieErro
 /// Serialise a model as an Ossie document. Keys come out in a fixed order, so the same
 /// model always gives the same bytes. A non-finite evidence number (NaN or infinite) is
 /// written as 0.0, since YAML and JSON cannot carry it and a null would make the file
-/// unreadable.
+/// unreadable. The extras of a rejected relationship are normalised to JSON-safe keys
+/// (a non-string key becomes its YAML text); keys that collide after that, such as `1`
+/// and `"1"`, are merged.
 pub fn write(model: &Model) -> String {
     let mut meta = model.meta.clone();
     meta.rejected = meta.rejected.iter().map(for_json).collect();

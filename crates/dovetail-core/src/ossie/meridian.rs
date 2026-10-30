@@ -169,10 +169,12 @@ impl Default for RelationshipMeta {
 }
 
 /// A source file the discovery pass left out, and why.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SkippedSource {
     pub path: String,
     pub reason: String,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 /// Where a run's column types came from.
