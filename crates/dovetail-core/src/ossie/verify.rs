@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use super::project::cardinality;
 use super::{Dataset, DecidedBy, Grade, Model, Relationship, Verified};
 use crate::evidence::{
     self, edge_evidence_with, is_audit_name, ColumnEvidence, EdgeEvidence, EvidenceError, Pass,
@@ -286,13 +287,7 @@ fn rewrite(r: &mut Relationship, measured: &EdgeEvidence) {
     e.child_rows = count(edge.verification.child_total);
     e.name_similarity = edge.evidence.name_similarity;
     e.parent_duplicates = count(edge.evidence.parent_duplicates);
-    r.meta.cardinality =
-        if measured.child_total > 0 && measured.child_distinct == measured.child_total {
-            "1:1"
-        } else {
-            "N:1"
-        }
-        .to_string();
+    r.meta.cardinality = cardinality(measured.child_total, measured.child_distinct);
     let grade = match edge.status {
         EdgeStatus::Accepted => Grade::Likely,
         _ => Grade::Possible,
@@ -330,10 +325,7 @@ fn warning(r: &Relationship, edge: &Edge) -> String {
         });
     }
     if edge.confidence < CONF_HIGH {
-        causes.push(format!(
-            "its confidence {:.2} is below {CONF_HIGH:.2}",
-            edge.confidence
-        ));
+        causes.push(low_confidence(edge.confidence));
     }
     if edge.evidence.semantic_mismatch {
         causes.push(format!(
@@ -352,6 +344,13 @@ fn warning(r: &Relationship, edge: &Edge) -> String {
         causes.push(edge.reason.clone());
     }
     format!("on the full data, {}", causes.join("; "))
+}
+
+/// Say that `confidence`, below [`CONF_HIGH`], is below it. The value is cut, not
+/// rounded, to three places, so it never reads as the threshold itself.
+fn low_confidence(confidence: f64) -> String {
+    let shown = (confidence * 1000.0).floor() / 1000.0;
+    format!("its confidence {shown:.3} is below the {CONF_HIGH} threshold")
 }
 
 /// `n` rows, grouped: `1 row`, `4,812 rows`.
@@ -377,5 +376,22 @@ fn grouped(n: i64) -> String {
         format!("-{out}")
     } else {
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_confidence_just_below_the_threshold_reads_below_it() {
+        assert_eq!(
+            low_confidence(0.596),
+            "its confidence 0.596 is below the 0.6 threshold"
+        );
+        assert_eq!(
+            low_confidence(0.5999),
+            "its confidence 0.599 is below the 0.6 threshold"
+        );
     }
 }

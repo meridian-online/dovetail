@@ -468,14 +468,10 @@ impl Context<'_> {
                             parent_duplicates: count(e.evidence.parent_duplicates),
                             extra: Map::new(),
                         },
-                        cardinality: if e.verification.child_total > 0
-                            && e.evidence.child_distinct == e.verification.child_total
-                        {
-                            "1:1"
-                        } else {
-                            "N:1"
-                        }
-                        .to_string(),
+                        cardinality: cardinality(
+                            e.verification.child_total,
+                            e.evidence.child_distinct,
+                        ),
                         verified: pass,
                         decided_by: DecidedBy::Dovetail,
                         warning: None,
@@ -524,6 +520,17 @@ pub(super) fn claim_name(r: &mut Relationship, taken: &mut BTreeSet<String>) {
         n += 1;
         r.name = format!("{base}_{n}");
     }
+}
+
+/// A join's cardinality from its child column: `1:1` when the child's non-null values
+/// (`child_total` rows, `child_distinct` distinct) are all different, else `N:1`.
+pub(super) fn cardinality(child_total: i64, child_distinct: i64) -> String {
+    if child_total > 0 && child_distinct == child_total {
+        "1:1"
+    } else {
+        "N:1"
+    }
+    .to_string()
 }
 
 fn shared_in(names: &[String], name: &str) -> usize {
