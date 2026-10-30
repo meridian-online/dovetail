@@ -1093,28 +1093,32 @@ fn parent_key(
     };
     // A combination's view holds sampled rows; its parts hold them all.
     let c = quote(&parent.column);
-    let every_part_has_it = |parts: &[(String, String)]| {
-        parts.iter().all(|(p, _)| {
-            cols.iter()
-                .any(|x| &x.table == p && x.column == parent.column)
-        })
+    // A part without the column holds no value of it.
+    let has_it = |p: &str| {
+        cols.iter()
+            .any(|x| x.table == p && x.column == parent.column)
     };
     let full_total = match view_parts {
-        Some(parts) if every_part_has_it(parts) => {
+        Some(parts) => {
             let arms: Vec<String> = parts
                 .iter()
+                .filter(|(p, _)| has_it(p))
                 .map(|(_, rel)| format!("SELECT count({c}) AS n FROM {rel}"))
                 .collect();
-            conn.query_row(
-                &format!(
-                    "SELECT CAST(coalesce(sum(n), 0) AS BIGINT) FROM ({})",
-                    arms.join(" UNION ALL ")
-                ),
-                [],
-                |r| r.get(0),
-            )?
+            if arms.is_empty() {
+                0
+            } else {
+                conn.query_row(
+                    &format!(
+                        "SELECT CAST(coalesce(sum(n), 0) AS BIGINT) FROM ({})",
+                        arms.join(" UNION ALL ")
+                    ),
+                    [],
+                    |r| r.get(0),
+                )?
+            }
         }
-        _ => parent.non_null,
+        None => parent.non_null,
     };
     Ok(ParentKey {
         total: parent.non_null,

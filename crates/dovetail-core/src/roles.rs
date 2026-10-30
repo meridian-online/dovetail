@@ -652,8 +652,13 @@ fn pointers_out(t: &TableEvidence, edges: &[Edge], carried: &[CarriedKey]) -> Ve
     let mut out: Vec<(String, String, Pointer)> = Vec::new();
     for e in points_at(edges).filter(|e| e.child.table == t.name && e.parent.table != t.name) {
         let repeats = e.evidence.child_distinct < e.verification.child_total;
+        let basis = if t.sample_rows < t.rows {
+            "in a sample of"
+        } else {
+            "across"
+        };
         let mut sentence = format!(
-            "{} points at {}; {} distinct values across {} rows",
+            "{} points at {}; {} distinct values {basis} {} rows",
             e.child.column,
             e.parent.qualified(),
             e.evidence.child_distinct,

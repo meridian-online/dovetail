@@ -158,7 +158,7 @@ const COMBINED: &str = "
     CREATE TABLE products AS
         SELECT i AS product_id,
                CASE WHEN i % 2 = 0 THEN (i % 200) + 1 ELSE (i % 200) + 1001 END AS supplier_id
-        FROM range(1, 3001) t(i);
+        FROM range(1, 301) t(i);
     CREATE TABLE stores AS
         SELECT i AS store_id, 'Store ' || i AS store_name FROM range(1, 501) t(i);
     CREATE TABLE shipments_east AS
@@ -169,7 +169,7 @@ const COMBINED: &str = "
 /// For each pointer, whether the child's rows outnumber the parent's, as
 /// `score_table` reads them: the child's `rows` against the edge's full
 /// figure for the parent. Also the rows of every dataset.
-type Outnumbering = (Vec<(String, i64)>, Vec<(String, String, bool)>);
+type Outnumbering = (Vec<(String, i64)>, Vec<(String, String, i64, bool)>);
 
 fn outnumbering(sample: Option<u64>) -> Outnumbering {
     let dir = tempfile::tempdir().unwrap();
@@ -203,6 +203,7 @@ fn outnumbering(sample: Option<u64>) -> Outnumbering {
         out.push((
             child.to_string(),
             parent.to_string(),
+            e.evidence.parent_full_total,
             rows_of(child) > e.evidence.parent_full_total,
         ));
     }
@@ -217,7 +218,7 @@ fn row_counts_compare_on_the_full_basis() {
     assert_eq!(
         rows,
         [
-            ("products".to_string(), 3000),
+            ("products".to_string(), 300),
             ("shipments".to_string(), 600),
             ("stores".to_string(), 500),
             ("suppliers".to_string(), 400),
@@ -225,8 +226,57 @@ fn row_counts_compare_on_the_full_basis() {
     );
     assert_eq!(rows, full_rows);
     assert_eq!(answer, full_answer);
-    assert!(
-        answer.iter().all(|(_, _, outnumbers)| *outnumbers),
-        "{answer:?}"
+    // Products (300) sit between the view's sampled rows (about 100) and its
+    // full 400, so only the full figure says they do not outnumber it;
+    // shipments (600) outnumber the 500 stores.
+    let row = |c: &str, p: &str, parent_rows: i64, outnumbers: bool| {
+        (c.to_string(), p.to_string(), parent_rows, outnumbers)
+    };
+    assert_eq!(
+        answer,
+        [
+            row("products", "suppliers", 400, false),
+            row("shipments", "stores", 500, true)
+        ]
     );
+}
+
+#[test]
+fn a_duplicate_combination_counts_the_part_it_reads() {
+    // Two identical 1,000-row price lists are one table, kept once.
+    let sql = "
+        CREATE TABLE price_list_2024 AS
+            SELECT 'SKU-' || lpad(CAST(i AS VARCHAR), 4, '0') AS sku, i % 37 AS unit_price
+            FROM range(1, 1001) t(i);
+        CREATE TABLE price_list_2025 AS SELECT * FROM price_list_2024;
+        CREATE TABLE sale_lines AS
+            SELECT i AS line_id, 'SKU-' || lpad(CAST((i % 1000) + 1 AS VARCHAR), 4, '0') AS sku
+            FROM range(1, 201) t(i);";
+    let measure = |sample: Option<u64>| {
+        let dir = tempfile::tempdir().unwrap();
+        let db = build_raw_db_from(dir.path(), sql);
+        let s = session(
+            &db,
+            &["price_list_2024", "price_list_2025", "sale_lines"],
+            sample,
+        );
+        let run = dovetail_core::combine::run_combined(&s).unwrap();
+        assert_eq!(run.combinations.len(), 1, "{:#?}", run.combinations);
+        assert_eq!(
+            run.combinations[0].kind,
+            dovetail_core::roles::CombinationKind::Duplicate
+        );
+        let name = run.combinations[0].name.clone();
+        let rows = run.tables.iter().find(|t| t.name == name).unwrap().rows;
+        let parent_full_total = run
+            .edges
+            .iter()
+            .find(|e| e.child.table == "sale_lines" && e.parent.table == name)
+            .unwrap_or_else(|| panic!("sale_lines to {name} in {:#?}", run.edges))
+            .evidence
+            .parent_full_total;
+        (rows, parent_full_total)
+    };
+    assert_eq!(measure(None), (1000, 1000));
+    assert_eq!(measure(Some(100)), (1000, 1000));
 }
