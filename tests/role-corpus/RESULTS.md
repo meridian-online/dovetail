@@ -45,14 +45,14 @@ Misses: none.
 
 Tier 2 is each CTU database scored whole against its answer key; tier 3 is each sampled GitTables table scored alone. Written by the `role_corpus_eval` test's `corpus_baseline` from the corpus `scripts/fetch-role-corpus.sh` fetches; everything but the stamp is the same on every run of the same code over the same corpus.
 
-Stamp: finetype 0.6.64, model sha256 86d7fcde7f92cbb2fb47bbe04ad65bfe991f9d698bf4d66c2a48e59fbf91fabe, dovetail 68f0d5f-dirty
+Stamp: finetype 0.6.64, model sha256 86d7fcde7f92cbb2fb47bbe04ad65bfe991f9d698bf4d66c2a48e59fbf91fabe, dovetail 9e4acbb-dirty
 
 ## Tier 2 totals
 
 | typing | databases | role accuracy | join recall |
 |---|---|---|---|
-| floor | 25 | 143/321 (44.5%) | 269/366 (73.5%) |
-| profiled | 25 | 151/321 (47.0%) | 273/366 (74.6%) |
+| floor | 25 | 147/321 (45.8%) | 269/366 (73.5%) |
+| profiled | 25 | 157/321 (48.9%) | 273/366 (74.6%) |
 
 ## Summary
 
@@ -66,19 +66,19 @@ Stamp: finetype 0.6.64, model sha256 86d7fcde7f92cbb2fb47bbe04ad65bfe991f9d698bf
 | ErgastF1 | 2 | floor | 14 | 5/14 (35.7%) | - / 0.00 | - / - |
 | GOSales | 2 | floor | 5 | 3/5 (60.0%) | - / 0.00 | - / - |
 | Hockey | 2 | floor | 22 | 1/22 (4.5%) | - / - | - / - |
-| Mondial | 2 | floor | 34 | 8/34 (23.5%) | - / - | 0.00 / - |
+| Mondial | 2 | floor | 34 | 9/34 (26.5%) | - / - | 0.00 / - |
 | PremierLeague | 2 | floor | 4 | 1/4 (25.0%) | 0.00 / - | - / - |
 | TubePricing | 2 | floor | 20 | 15/20 (75.0%) | - / 0.00 | - / - |
-| Walmart_2014 | 2 | floor | 3 | 0/3 (0.0%) | - / - | - / - |
+| Walmart_2014 | 2 | floor | 3 | 1/3 (33.3%) | - / - | - / - |
 | ccs | 2 | floor | 6 | 5/6 (83.3%) | 1.00 / 1.00 | - / - |
 | classicmodels | 2 | floor | 8 | 6/8 (75.0%) | - / 0.00 | - / - |
 | employee | 2 | floor | 6 | 1/6 (16.7%) | - / - | 0.00 / - |
-| financial | 2 | floor | 8 | 5/8 (62.5%) | - / - | - / - |
+| financial | 2 | floor | 8 | 6/8 (75.0%) | - / - | - / - |
 | imdb_MovieLens | 2 | floor | 7 | 7/7 (100.0%) | - / - | - / - |
 | imdb_small | 2 | floor | 7 | 2/7 (28.6%) | - / - | - / - |
 | lahman_2014 | 2 | floor | 25 | 3/25 (12.0%) | - / - | - / - |
 | northwind | 2 | floor | 13 | 9/13 (69.2%) | - / 0.00 | - / - |
-| pubs | 2 | floor | 11 | 8/11 (72.7%) | - / 0.00 | - / - |
+| pubs | 2 | floor | 11 | 9/11 (81.8%) | - / 0.00 | - / - |
 | sakila | 2 | floor | 16 | 13/16 (81.2%) | 1.00 / 0.67 | - / - |
 | stats_CEB | 2 | floor | 8 | 7/8 (87.5%) | - / - | - / - |
 | university | 2 | floor | 5 | 5/5 (100.0%) | - / - | - / - |
@@ -90,20 +90,20 @@ Stamp: finetype 0.6.64, model sha256 86d7fcde7f92cbb2fb47bbe04ad65bfe991f9d698bf
 | CraftBeer | 2 | profiled | 2 | 2/2 (100.0%) | - / - | - / - |
 | ErgastF1 | 2 | profiled | 14 | 6/14 (42.9%) | 1.00 / 0.50 | - / - |
 | GOSales | 2 | profiled | 5 | 4/5 (80.0%) | 1.00 / 1.00 | - / - |
-| Hockey | 2 | profiled | 22 | 3/22 (13.6%) | - / - | - / - |
-| Mondial | 2 | profiled | 34 | 5/34 (14.7%) | - / - | - / - |
+| Hockey | 2 | profiled | 22 | 4/22 (18.2%) | - / - | - / - |
+| Mondial | 2 | profiled | 34 | 6/34 (17.6%) | - / - | - / - |
 | PremierLeague | 2 | profiled | 4 | 1/4 (25.0%) | 0.00 / - | - / - |
 | TubePricing | 2 | profiled | 20 | 16/20 (80.0%) | - / 0.00 | - / - |
-| Walmart_2014 | 2 | profiled | 3 | 1/3 (33.3%) | - / - | - / - |
+| Walmart_2014 | 2 | profiled | 3 | 2/3 (66.7%) | - / - | - / - |
 | ccs | 2 | profiled | 6 | 5/6 (83.3%) | 1.00 / 1.00 | - / - |
 | classicmodels | 2 | profiled | 8 | 6/8 (75.0%) | - / 0.00 | - / - |
 | employee | 2 | profiled | 6 | 2/6 (33.3%) | - / - | - / - |
-| financial | 2 | profiled | 8 | 5/8 (62.5%) | - / - | - / - |
+| financial | 2 | profiled | 8 | 6/8 (75.0%) | - / - | - / - |
 | imdb_MovieLens | 2 | profiled | 7 | 6/7 (85.7%) | - / - | - / - |
 | imdb_small | 2 | profiled | 7 | 1/7 (14.3%) | - / - | - / - |
-| lahman_2014 | 2 | profiled | 25 | 7/25 (28.0%) | - / - | - / - |
+| lahman_2014 | 2 | profiled | 25 | 8/25 (32.0%) | - / - | - / - |
 | northwind | 2 | profiled | 13 | 10/13 (76.9%) | - / 0.00 | - / - |
-| pubs | 2 | profiled | 11 | 8/11 (72.7%) | - / 0.00 | - / - |
+| pubs | 2 | profiled | 11 | 9/11 (81.8%) | - / 0.00 | - / - |
 | sakila | 2 | profiled | 16 | 10/16 (62.5%) | 0.67 / 0.67 | - / - |
 | stats_CEB | 2 | profiled | 8 | 7/8 (87.5%) | - / - | - / - |
 | university | 2 | profiled | 5 | 5/5 (100.0%) | - / - | - / - |
@@ -115,11 +115,11 @@ Rows are the answer key's role, columns the call.
 
 | key \ call | entity | event | reference | bridge | snapshot | unclear |
 |---|---|---|---|---|---|---|
-| entity | 92 | 12 | 4 | 0 | 1 | 18 |
+| entity | 95 | 9 | 4 | 0 | 1 | 18 |
 | event | 9 | 27 | 0 | 0 | 0 | 19 |
 | reference | 19 | 1 | 5 | 0 | 2 | 6 |
 | bridge | 17 | 7 | 0 | 11 | 1 | 10 |
-| snapshot | 11 | 5 | 0 | 1 | 3 | 29 |
+| snapshot | 11 | 5 | 0 | 1 | 4 | 28 |
 | unclear | 1 | 0 | 0 | 0 | 0 | 5 |
 
 Misses:
@@ -257,7 +257,6 @@ Misses:
 - Mondial: table `mergeswith`: the key says bridge, called unclear
 - Mondial: table `mountain`: the key says entity, called unclear
 - Mondial: table `mountainonisland`: the key says bridge, called unclear
-- Mondial: table `organization`: the key says entity, called event
 - Mondial: table `religion`: the key says bridge, called entity
 - Mondial: table `river`: the key says entity, called unclear
 - Mondial: table `sea`: the key says entity, called unclear
@@ -271,7 +270,6 @@ Misses:
 - TubePricing: table `type_component`: the key says reference, called entity
 - TubePricing: table `type_connection`: the key says reference, called entity
 - TubePricing: table `type_end_form`: the key says reference, called unclear
-- Walmart_2014: table `features`: the key says snapshot, called unclear
 - Walmart_2014: table `stores`: the key says entity, called unclear
 - Walmart_2014: table `train`: the key says snapshot, called unclear
 - ccs: table `yearmonth`: the key says snapshot, called entity
@@ -286,7 +284,6 @@ Misses:
 - employee: table `employees`: the key says entity, called unclear
 - employee: table `titles`: the key says snapshot, called unclear
 - financial: table `account`: the key says entity, called event
-- financial: table `client`: the key says entity, called event
 - financial: table `disp`: the key says bridge, called entity
 - imdb_small: table `directors_genres`: the key says bridge, called entity
 - imdb_small: table `movies_directors`: the key says bridge, called entity
@@ -322,7 +319,6 @@ Misses:
 - northwind: table `region`: the key says reference, called entity
 - northwind: table `shippers`: the key says entity, called unclear
 - pubs: fold `jobs` into `employee`: in the key, not called
-- pubs: table `employee`: the key says entity, called event
 - pubs: table `jobs`: the key says reference, called entity
 - pubs: table `titles`: the key says entity, called event
 - sakila: fold `country` into `city`: in the key, not called
@@ -338,11 +334,11 @@ Rows are the answer key's role, columns the call.
 
 | key \ call | entity | event | reference | bridge | snapshot | unclear |
 |---|---|---|---|---|---|---|
-| entity | 87 | 14 | 5 | 0 | 2 | 19 |
+| entity | 90 | 10 | 5 | 0 | 2 | 20 |
 | event | 6 | 37 | 0 | 0 | 0 | 12 |
 | reference | 15 | 1 | 9 | 0 | 1 | 7 |
 | bridge | 17 | 12 | 0 | 9 | 0 | 11 |
-| snapshot | 6 | 27 | 0 | 0 | 4 | 14 |
+| snapshot | 6 | 26 | 0 | 0 | 7 | 12 |
 | unclear | 1 | 0 | 0 | 0 | 0 | 5 |
 
 Misses:
@@ -433,7 +429,7 @@ Misses:
 - Hockey: table `goalies`: the key says snapshot, called event
 - Hockey: table `goaliessc`: the key says snapshot, called event
 - Hockey: table `goaliesshootout`: the key says snapshot, called event
-- Hockey: table `master`: the key says entity, called event
+- Hockey: table `master`: the key says entity, called unclear
 - Hockey: table `scoring`: the key says snapshot, called event
 - Hockey: table `scoringsc`: the key says snapshot, called event
 - Hockey: table `scoringshootout`: the key says snapshot, called event
@@ -443,7 +439,6 @@ Misses:
 - Hockey: table `teamshalf`: the key says snapshot, called unclear
 - Hockey: table `teamsplits`: the key says snapshot, called unclear
 - Hockey: table `teamspost`: the key says snapshot, called unclear
-- Hockey: table `teamssc`: the key says snapshot, called unclear
 - Hockey: table `teamvsteam`: the key says snapshot, called unclear
 - Mondial: table `continent`: the key says entity, called unclear
 - Mondial: table `desert`: the key says entity, called unclear
@@ -468,7 +463,6 @@ Misses:
 - Mondial: table `mergeswith`: the key says bridge, called unclear
 - Mondial: table `mountain`: the key says entity, called unclear
 - Mondial: table `mountainonisland`: the key says bridge, called unclear
-- Mondial: table `organization`: the key says entity, called event
 - Mondial: table `politics`: the key says entity, called unclear
 - Mondial: table `population`: the key says entity, called unclear
 - Mondial: table `religion`: the key says bridge, called entity
@@ -483,7 +477,6 @@ Misses:
 - TubePricing: table `spec`: the key says bridge, called unclear
 - TubePricing: table `tube_end_form`: the key says reference, called unclear
 - TubePricing: table `type_end_form`: the key says reference, called unclear
-- Walmart_2014: table `features`: the key says snapshot, called event
 - Walmart_2014: table `train`: the key says snapshot, called event
 - ccs: table `customers`: the key says entity, called unclear
 - classicmodels: fold `productlines` into `products`: in the key, not called
@@ -494,7 +487,6 @@ Misses:
 - employee: table `dept_manager`: the key says snapshot, called entity
 - employee: table `titles`: the key says snapshot, called event
 - financial: table `account`: the key says entity, called event
-- financial: table `client`: the key says entity, called event
 - financial: table `disp`: the key says bridge, called entity
 - imdb_MovieLens: table `movies2directors`: the key says bridge, called unclear
 - imdb_small: table `directors_genres`: the key says bridge, called entity
@@ -513,7 +505,6 @@ Misses:
 - lahman_2014: table `fieldingof`: the key says snapshot, called unclear
 - lahman_2014: table `fieldingpost`: the key says snapshot, called event
 - lahman_2014: table `managers`: the key says snapshot, called unclear
-- lahman_2014: table `managershalf`: the key says snapshot, called unclear
 - lahman_2014: table `pitching`: the key says snapshot, called event
 - lahman_2014: table `pitchingpost`: the key says snapshot, called event
 - lahman_2014: table `salaries`: the key says snapshot, called unclear
@@ -527,7 +518,6 @@ Misses:
 - northwind: table `region`: the key says reference, called entity
 - northwind: table `shippers`: the key says entity, called unclear
 - pubs: fold `jobs` into `employee`: in the key, not called
-- pubs: table `employee`: the key says entity, called event
 - pubs: table `jobs`: the key says reference, called entity
 - pubs: table `titles`: the key says entity, called event
 - sakila: fold `actor` into `film_actor`: called, not in the key
@@ -809,7 +799,7 @@ Missed foreign keys, profiled:
 
 ## Tier 3, profiled
 
-1999 of 2000 sampled tables scored, each alone. Unclear rate 99.3%; reference rate 0.0%.
+1999 of 2000 sampled tables scored, each alone. Unclear rate 98.4%; reference rate 0.0%.
 
 | role | tables | share |
 |---|---|---|
@@ -817,8 +807,8 @@ Missed foreign keys, profiled:
 | event | 0 | 0.0% |
 | reference | 0 | 0.0% |
 | bridge | 0 | 0.0% |
-| snapshot | 3 | 0.2% |
-| unclear | 1986 | 99.3% |
+| snapshot | 21 | 1.1% |
+| unclear | 1968 | 98.4% |
 
 ## Skipped
 
