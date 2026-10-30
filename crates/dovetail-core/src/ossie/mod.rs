@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 mod carry;
 mod meridian;
 mod project;
+mod run;
+mod verify;
 mod wire;
 
 pub use carry::carry;
@@ -22,6 +24,8 @@ pub use meridian::{
     Role, SkippedSource, Typing, Verified,
 };
 pub use project::{project, Provenance};
+pub use run::{run_model, ModelError, ModelRequest};
+pub use verify::verify_full;
 pub use wire::{read, write};
 
 /// The Ossie specification version dovetail writes.

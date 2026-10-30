@@ -26,6 +26,10 @@ use crate::roles::{points_at, CarriedKey, TableEvidence, TimeColumn};
 /// How a session's queries name the analyst's tables.
 pub(crate) const SESSION_PREFIX: &str = "src.main.";
 
+/// How a session built by [`Session::over`] names the analyst's database
+/// itself, attached beside `src` for the full data.
+pub(crate) const FULL_PREFIX: &str = "\"full\".main.";
+
 /// Column names that record when a row was written rather than when anything
 /// happened. A name also counts when it is one of these with a trailing `_at`
 /// dropped and `_ts` or `_at` added, such as `created_ts` or `last_update_at`.
@@ -234,7 +238,7 @@ impl Session {
                 .filter(|c| c.table == t.relation && LINEAGE.contains(&c.column.as_str()))
                 .map(|c| quote(&c.column))
                 .collect();
-            let from = format!("\"full\".main.{}", quote(&t.relation));
+            let from = format!("{FULL_PREFIX}{}", quote(&t.relation));
             let select = if present.is_empty() {
                 format!("SELECT * FROM {from}")
             } else {
