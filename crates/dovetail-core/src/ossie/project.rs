@@ -147,7 +147,7 @@ struct Context<'a> {
     columns: Columns,
     /// Each table's rows as the evidence counted them.
     counted: BTreeMap<String, i64>,
-    /// DuckDB's reserved keywords, lower case: a name among them is quoted in SQL.
+    /// DuckDB's keywords that cannot stand bare, lower case: a name among them is quoted in SQL.
     reserved: BTreeSet<String>,
 }
 
@@ -212,11 +212,7 @@ impl Context<'_> {
         let files: Vec<String> = c
             .parts
             .iter()
-            .map(|p| {
-                self.table_of(p)
-                    .and_then(|t| t.source_file.clone())
-                    .unwrap_or_else(|| p.clone())
-            })
+            .filter_map(|p| self.table_of(p).and_then(|t| t.source_file.clone()))
             .collect();
         let mut meta = self.meta(call, files.join(", "));
         meta.combination = Some(Combination {
@@ -554,11 +550,11 @@ fn simple(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// DuckDB's reserved keywords, read from the session's own engine so the list is the one
+/// DuckDB's keywords that cannot stand bare as a name (every category but `unreserved`), read from the session's own engine so the list is the one
 /// the pinned DuckDB parses by.
 fn reserved_words(s: &Session) -> Result<BTreeSet<String>, EvidenceError> {
     let mut stmt = s.conn().prepare(
-        "SELECT keyword_name FROM duckdb_keywords() WHERE keyword_category = 'reserved'",
+        "SELECT keyword_name FROM duckdb_keywords() WHERE keyword_category <> 'unreserved'",
     )?;
     let words = stmt
         .query_map([], |r| r.get::<_, String>(0))?

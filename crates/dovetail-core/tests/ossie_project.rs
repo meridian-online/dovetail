@@ -136,6 +136,12 @@ fn combinations_are_datasets_with_parts() {
         assert_eq!(Some(n as u64), d.meta.rows, "{name}");
         let c = d.meta.combination.as_ref().unwrap();
         assert_eq!(c.kind, kind);
+        let files: Vec<&str> = c
+            .parts
+            .iter()
+            .map(|p| dataset(&m, p).meta.source_file.as_str())
+            .collect();
+        assert_eq!(d.meta.source_file, files.join(", "));
         assert!(!d.meta.source_file.is_empty());
         for p in &c.parts {
             let part = dataset(&m, p);
@@ -404,6 +410,8 @@ fn a_combination_can_be_a_folded_reference() {
     assert_eq!(roles.folds.len(), 1, "{:?}", roles.folds);
     let d = dataset(&m, &name);
     assert_eq!(d.meta.folded_into.as_deref(), Some("items"));
+    // No part has a source file, so the combination lists none.
+    assert_eq!(d.meta.source_file, "");
     assert_eq!(
         d.meta.fold_column.as_deref(),
         Some(roles.folds[0].struct_column.as_str())
@@ -417,9 +425,10 @@ fn reserved_words_are_quoted() {
     let dir = tempfile::tempdir().unwrap();
     let db = db_from(
         dir.path(),
-        r#"CREATE TABLE "group" AS SELECT i AS group_id, 'g' || i AS "order" FROM range(1, 31) t(i);"#,
+        r#"CREATE TABLE "group" AS SELECT i AS group_id, 'g' || i AS "order" FROM range(1, 31) t(i);
+           CREATE TABLE "join" AS SELECT i AS join_id, i AS "left", i % 2 = 0 AS "full" FROM range(1, 31) t(i);"#,
     );
-    let tables = vec![table("group", "group")];
+    let tables = vec![table("group", "group"), table("join", "join")];
     let (_, m) = project_plain(&db, &tables, SessionTyping::Request(TypingRequest::Floor));
     let d = dataset(&m, "group");
     assert_eq!(d.source, "\"group\"");
@@ -444,6 +453,36 @@ fn reserved_words_are_quoted() {
         )
         .unwrap();
     assert_eq!(n, 30);
+
+    // Keywords that are not "reserved" in DuckDB's own words still cannot stand bare.
+    let j = dataset(&m, "join");
+    assert_eq!(j.source, "\"join\"");
+    let jsql = |n: &str| {
+        j.fields
+            .iter()
+            .find(|f| f.name == n)
+            .unwrap()
+            .expression
+            .sql
+            .clone()
+            .unwrap()
+    };
+    assert_eq!(jsql("left"), "\"left\"");
+    assert_eq!(jsql("full"), "\"full\"");
+    assert_eq!(jsql("join_id"), "join_id");
+    let n: i64 = conn
+        .query_row(
+            &format!(
+                "SELECT count({}) FROM {} WHERE {}",
+                jsql("left"),
+                j.source,
+                jsql("full")
+            ),
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(n, 15);
 }
 
 #[test]
