@@ -686,6 +686,8 @@ pub struct EdgeEvidence {
     /// an untyped parent that could earn `exact_name_key_credit`
     /// otherwise; `false` elsewhere.
     pub parent_key_shaped: bool,
+    /// Parent key values held by more than one parent row, NULLs left out.
+    pub parent_duplicates: i64,
 }
 
 /// Which run a set of edge evidence rows belongs to, kept apart in
@@ -800,6 +802,9 @@ fn relation_of(datasets: &[Dataset]) -> impl Fn(&str) -> String + '_ {
     }
 }
 
+/// How many rows of each table a sampled session draws.
+pub const SAMPLE_ROWS: u64 = 50_000;
+
 /// Measure every candidate join among `datasets` and write the rows to
 /// `memory.edge_evidence` under `pass`, replacing that pass's rows.
 pub fn edge_evidence(
@@ -824,7 +829,17 @@ pub fn edge_evidence_with(
     reused: Vec<EdgeEvidence>,
 ) -> Result<Vec<EdgeEvidence>, EvidenceError> {
     let tables = dataset_names(datasets)?;
-    let mut edges = measure_edges(s.conn(), &relation_of(datasets), cols, &tables, skip)?;
+    // A sampled session answers questions about a parent's whole key from
+    // the full table, for a dataset that is one of its source tables.
+    let full = |table: &str| -> Option<String> {
+        s.sampled()?;
+        datasets
+            .iter()
+            .find(|d| d.name == table && d.relation == Relation::Source)
+            .and_then(|d| s.full_relation(&d.name))
+            .map(str::to_string)
+    };
+    let mut edges = measure_edges(s.conn(), &relation_of(datasets), &full, cols, &tables, skip)?;
     if !reused.is_empty() {
         let position: std::collections::BTreeMap<(&str, &str), usize> = cols
             .iter()
@@ -850,10 +865,14 @@ pub fn edge_evidence_with(
 /// semantic similarity reaches 0.3. Totals and distincts come from `cols`;
 /// one query per child column measures overlap and orphans against all its
 /// candidate parents. `relation` renders a table name as the relation to read;
-/// a pair of tables `skip(child, parent)` names is no candidate.
+/// a pair of tables `skip(child, parent)` names is no candidate. `full(table)`
+/// is the relation holding the whole of a table the rows were sampled from; a
+/// parent it names is measured there (its non-null rows, distinct values and
+/// duplicated values, and which child values it holds), not in `relation`.
 pub(crate) fn measure_edges(
     conn: &Connection,
     relation: &dyn Fn(&str) -> String,
+    full: &dyn Fn(&str) -> Option<String>,
     cols: &[ColumnEvidence],
     tables: &[String],
     skip: &dyn Fn(&str, &str) -> bool,
@@ -863,6 +882,8 @@ pub(crate) fn measure_edges(
     let mut edges = Vec::new();
     // Each parent column's key shape, measured at most once.
     let mut shapes: std::collections::BTreeMap<(String, String), bool> = Default::default();
+    // Each parent column's key counts, measured at most once.
+    let mut keys: std::collections::BTreeMap<(String, String), ParentKey> = Default::default();
     for child in &in_scope {
         if child.non_null == 0 {
             continue;
@@ -897,7 +918,12 @@ pub(crate) fn measure_edges(
         }
         let parents: Vec<(String, &str)> = candidates
             .iter()
-            .map(|(p, ..)| (relation(&p.table), p.column.as_str()))
+            .map(|(p, ..)| {
+                (
+                    full(&p.table).unwrap_or_else(|| relation(&p.table)),
+                    p.column.as_str(),
+                )
+            })
             .collect();
         let sql = overlap_sql(&relation(&child.table), &child.column, &parents);
         let mut stmt = conn.prepare(&sql)?;
@@ -907,13 +933,27 @@ pub(crate) fn measure_edges(
         for ((parent, parent_ref, name, semantic), (overlap, orphans)) in
             candidates.into_iter().zip(counts)
         {
+            let key = (parent.table.clone(), parent.column.clone());
+            let counts = match keys.get(&key) {
+                Some(&counts) => counts,
+                None => {
+                    let counts = parent_key(
+                        conn,
+                        &relation(&parent.table),
+                        full(&parent.table).as_deref(),
+                        parent,
+                    )?;
+                    keys.insert(key, counts);
+                    counts
+                }
+            };
             let mut edge = EdgeEvidence {
                 child: child_ref.clone(),
                 parent: parent_ref,
                 child_total: child.non_null,
                 child_distinct: child.distinct,
-                parent_total: parent.non_null,
-                parent_distinct: parent.distinct,
+                parent_total: counts.total,
+                parent_distinct: counts.distinct,
                 overlap_distinct: overlap,
                 orphan_count: orphans,
                 name_similarity: name,
@@ -921,6 +961,7 @@ pub(crate) fn measure_edges(
                 child_label: child.label.clone(),
                 parent_label: parent.label.clone(),
                 parent_key_shaped: false,
+                parent_duplicates: counts.duplicates,
             };
             // One SELECT, and only for a pair the cheaper conditions leave
             // undecided.
@@ -948,6 +989,57 @@ pub(crate) fn measure_edges(
         }
     }
     Ok(edges)
+}
+
+/// A parent column's key counts.
+#[derive(Debug, Clone, Copy)]
+struct ParentKey {
+    total: i64,
+    distinct: i64,
+    duplicates: i64,
+}
+
+/// `parent`'s non-null rows, distinct values and duplicated values (values
+/// held by more than one row). From `full` when the table was sampled; else
+/// the rows and distinct values are `parent`'s own and only the duplicates are
+/// counted, and not at all when every non-null row is distinct.
+fn parent_key(
+    conn: &Connection,
+    relation: &str,
+    full: Option<&str>,
+    parent: &ColumnEvidence,
+) -> Result<ParentKey, EvidenceError> {
+    let counts = |relation: &str| -> Result<(i64, i64, i64), EvidenceError> {
+        let c = quote(&parent.column);
+        Ok(conn.query_row(
+            &format!(
+                "WITH g AS (SELECT {c} AS v, count(*) AS n FROM {relation} \
+                            WHERE {c} IS NOT NULL GROUP BY {c}) \
+                 SELECT CAST(coalesce(sum(n), 0) AS BIGINT), count(*), \
+                        count(*) FILTER (WHERE n > 1) FROM g"
+            ),
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?)
+    };
+    if let Some(full) = full {
+        let (total, distinct, duplicates) = counts(full)?;
+        return Ok(ParentKey {
+            total,
+            distinct,
+            duplicates,
+        });
+    }
+    let duplicates = if parent.non_null == parent.distinct {
+        0
+    } else {
+        counts(relation)?.2
+    };
+    Ok(ParentKey {
+        total: parent.non_null,
+        distinct: parent.distinct,
+        duplicates,
+    })
 }
 
 /// Whether a text or integer column's non-null values look like keys. A value
@@ -1137,10 +1229,20 @@ pub fn table_evidence_carrying(
 ) -> Result<Vec<TableEvidence>, EvidenceError> {
     dataset_names(datasets)?;
     let floor = matches!(s.typing, TypingSource::Floor { .. });
-    let out = datasets
+    let mut out = datasets
         .iter()
         .map(|d| measure_table(s.conn(), cols, edges, carried, d, floor))
         .collect::<Result<Vec<_>, _>>()?;
+    // A sampled table's row count is a question about the whole table.
+    if s.sampled().is_some() {
+        for (t, d) in out.iter_mut().zip(datasets) {
+            if let (Relation::Source, Some(full)) = (d.relation, s.full_relation(&d.name)) {
+                t.rows = s
+                    .conn()
+                    .query_row(&format!("SELECT count(*) FROM {full}"), [], |r| r.get(0))?;
+            }
+        }
+    }
     write_table_evidence(s, &out, edges, carried)?;
     Ok(out)
 }
@@ -1286,6 +1388,7 @@ pub(crate) fn measure_table(
     Ok(TableEvidence {
         name: table.to_string(),
         rows,
+        sample_rows: rows,
         columns: tcols.iter().map(|c| c.column.clone()).collect(),
         key,
         key_distinct,

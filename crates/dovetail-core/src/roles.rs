@@ -144,7 +144,11 @@ pub struct TimeColumn {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableEvidence {
     pub name: String,
+    /// The table's rows: every one of them, even when the other measurements
+    /// were taken on a sample.
     pub rows: i64,
+    /// The rows the other measurements were taken on; `rows` unless sampled.
+    pub sample_rows: i64,
     pub columns: Vec<String>,
     /// The unique column or pair; empty when none is unique.
     pub key: Vec<String>,
@@ -410,7 +414,7 @@ pub fn score_table(
     };
     let varying_other_date = occurrence_times.iter().any(|c| {
         Some(c.name.as_str()) != snapshot_date.as_deref()
-            && c.distinct as f64 / rows as f64 > SNAPSHOT_MAX_DATE_RATIO
+            && c.distinct as f64 / t.sample_rows as f64 > SNAPSHOT_MAX_DATE_RATIO
     });
     let non_key_columns = t.columns.len().saturating_sub(t.key.len());
     // A self-reference only exempts a table from isolation; it earns nothing.
@@ -700,7 +704,7 @@ fn snapshot_signal(t: &TableEvidence, pointer_columns: &BTreeSet<&str>) -> Optio
             if let Some(c) = t.time_columns.iter().find(|c| &c.name == k && !is_audit(c)) {
                 // A combination's token is its as-of time by construction.
                 let token = t.snapshot_token.as_deref() == Some(k.as_str());
-                let few = c.distinct as f64 / t.rows as f64 <= SNAPSHOT_MAX_DATE_RATIO + EPS;
+                let few = c.distinct as f64 / t.sample_rows as f64 <= SNAPSHOT_MAX_DATE_RATIO + EPS;
                 if token || few || dense_grid(t, k, c.distinct) {
                     return Some(SnapshotSignal::DatedKey {
                         date: c.name.clone(),
@@ -736,7 +740,7 @@ fn dense_grid(t: &TableEvidence, date: &str, date_distinct: i64) -> bool {
         return false;
     }
     let cells = others.iter().map(|d| *d as f64).product::<f64>() * date_distinct as f64;
-    t.rows as f64 + EPS >= SNAPSHOT_MIN_GRID_FILL * cells
+    t.sample_rows as f64 + EPS >= SNAPSHOT_MIN_GRID_FILL * cells
 }
 
 // --- The role model ------------------------------------------------------------
@@ -921,6 +925,7 @@ mod tests {
         TableEvidence {
             name: name.into(),
             rows,
+            sample_rows: rows,
             columns: strings(columns),
             key: strings(key),
             key_distinct: vec![],
@@ -976,6 +981,7 @@ mod tests {
                 child_distinct,
                 parent_distinct: parent_total,
                 parent_total,
+                parent_duplicates: 0,
             },
             verification: Verification {
                 orphan_count: 0,

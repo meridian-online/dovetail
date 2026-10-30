@@ -139,6 +139,7 @@ fn edge_from_evidence_is_pure() {
         child_label: None,
         parent_label: None,
         parent_key_shaped: false,
+        parent_duplicates: 0,
     };
     let edge = edge_from_evidence(&e);
     assert_eq!(edge.status, EdgeStatus::Accepted);
@@ -231,6 +232,7 @@ fn credit_candidate(parent_label: Option<&str>, shaped: bool) -> EdgeEvidence {
         child_label: None,
         parent_label: parent_label.map(str::to_string),
         parent_key_shaped: shaped,
+        parent_duplicates: 0,
     }
 }
 
