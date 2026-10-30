@@ -284,3 +284,69 @@ fn an_analyst_dataset_the_proposal_lacks_is_appended() {
     // Base order: `stores` comes before `hand_made`.
     assert_eq!(tail, ["hand_made", "stores"]);
 }
+
+fn names_unique(m: &Model) {
+    let mut seen = std::collections::BTreeSet::new();
+    for r in &m.relationships {
+        assert!(seen.insert(r.name.clone()), "duplicate name {}", r.name);
+    }
+}
+
+#[test]
+fn a_corrected_join_keeps_its_name_and_the_old_proposal_gets_another() {
+    let mut base = base();
+    // The analyst corrected the columns of a proposed join and kept its name.
+    let name = "loyalty_visits_customers";
+    let corrected = base
+        .relationships
+        .iter_mut()
+        .find(|r| r.name == name)
+        .unwrap();
+    corrected.from_columns = vec!["points".to_string()];
+    corrected.meta.decided_by = DecidedBy::Analyst;
+    let carried = carry(proposal(), &base);
+    names_unique(&carried);
+    let kept = carried
+        .relationships
+        .iter()
+        .find(|r| r.name == name)
+        .unwrap();
+    assert_eq!(kept.from_columns, ["points"]);
+    // The re-proposed join with the old columns is still there, renamed.
+    let old = carried
+        .relationships
+        .iter()
+        .find(|r| r.from == "loyalty_visits" && r.from_columns == ["customer_id"])
+        .unwrap();
+    assert_eq!(old.name, "loyalty_visits_customers_customer_id");
+}
+
+#[test]
+fn an_analyst_join_replaced_in_place_may_share_a_proposed_name() {
+    let mut base = base();
+    // An analyst join over one proposed join's key, named after another proposed join.
+    let target = proposal()
+        .relationships
+        .iter()
+        .find(|r| r.name == "products_suppliers")
+        .unwrap()
+        .clone();
+    let mut mine = target.clone();
+    mine.name = "products_categories".to_string();
+    mine.meta.decided_by = DecidedBy::Analyst;
+    base.relationships.push(mine);
+    let carried = carry(proposal(), &base);
+    names_unique(&carried);
+    let at = carried
+        .relationships
+        .iter()
+        .position(|r| key(r) == key(&target))
+        .unwrap();
+    assert_eq!(carried.relationships[at].name, "products_categories");
+    assert!(carried
+        .relationships
+        .iter()
+        .any(|r| r.name == "products_categories_category_id"));
+    // The rejected join left and the base's added join came in.
+    assert_eq!(carried.relationships.len(), proposal().relationships.len());
+}

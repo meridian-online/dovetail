@@ -512,6 +512,20 @@ fn unique_names(rels: &mut [Relationship]) {
     }
 }
 
+/// Give `r` a name not in `taken`, by the scheme `unique_names` uses: a taken name takes
+/// `_<to columns>` after it, and one still taken a counter. The name is added to `taken`.
+pub(super) fn claim_name(r: &mut Relationship, taken: &mut BTreeSet<String>) {
+    if taken.contains(&r.name) {
+        r.name = format!("{}_{}", r.name, r.to_columns.join("_"));
+    }
+    let base = r.name.clone();
+    let mut n = 1;
+    while !taken.insert(r.name.clone()) {
+        n += 1;
+        r.name = format!("{base}_{n}");
+    }
+}
+
 fn shared_in(names: &[String], name: &str) -> usize {
     names.iter().filter(|n| *n == name).count()
 }

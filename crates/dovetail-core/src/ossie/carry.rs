@@ -5,8 +5,9 @@
 //! `decided_by: analyst` is written as the base had it, and what the analyst rejected or
 //! excluded stays out.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
+use super::project::claim_name;
 use super::{DecidedBy, Model, Relationship};
 
 /// A relationship's identity: the name is not part of it.
@@ -20,10 +21,13 @@ fn join_key(r: &Relationship) -> JoinKey<'_> {
 ///
 /// - An analyst dataset replaces the proposal's of the same name, or is appended.
 /// - An analyst field in a dovetail-decided dataset replaces the proposal's field of the
-///   same name in place, or is appended to it.
+///   same name in place, or is appended to it. One in a dataset that has left the proposal
+///   (its source is gone) is not carried.
 /// - An analyst relationship replaces the proposal's with the same `(from, from_columns,
 ///   to, to_columns)`, or is appended.
 /// - Every dataset takes `excluded` from the base dataset of the same name.
+/// - Relationship names stay unique: the analyst's keep theirs, and a proposed join that
+///   shares a name takes a suffix (`_<to columns>`, then a counter).
 /// - Proposed relationships matching `base.meta.rejected` are dropped.
 /// - `meta.rejected` and `meta.skipped_sources` are the base's.
 ///
@@ -69,6 +73,20 @@ pub fn carry(mut proposal: Model, base: &Model) -> Model {
         match at {
             Some(i) => proposal.relationships[i] = theirs.clone(),
             None => proposal.relationships.push(theirs.clone()),
+        }
+    }
+
+    // Names stay unique. The analyst's keep theirs, so any other join that now shares
+    // one takes a suffix, in the proposal's order.
+    let mut taken: BTreeSet<String> = proposal
+        .relationships
+        .iter()
+        .filter(|r| r.meta.decided_by == DecidedBy::Analyst)
+        .map(|r| r.name.clone())
+        .collect();
+    for r in &mut proposal.relationships {
+        if r.meta.decided_by != DecidedBy::Analyst {
+            claim_name(r, &mut taken);
         }
     }
 
