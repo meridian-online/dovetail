@@ -143,5 +143,6 @@ fn loads_and_reports_pinned_version() {
             assert!(model_sha256.bytes().all(|b| b.is_ascii_hexdigit()));
         }
         TypingSource::Floor { reason } => panic!("fell back to the floor: {reason}"),
+        TypingSource::Packages => panic!("load never answers with the packages typing"),
     }
 }

@@ -1,0 +1,33 @@
+{
+  "name": "customers",
+  "resources": [
+    {
+      "name": "customers",
+      "path": "../../source/customers.csv",
+      "format": "csv",
+      "schema": {
+        "fields": [
+          {
+            "name": "customer_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "x-finetype-label": "identity.person.full_name"
+          },
+          {
+            "name": "email",
+            "type": "string"
+          },
+          {
+            "name": "joined_on",
+            "type": "date",
+            "x-finetype-label": "datetime.date.iso"
+          }
+        ]
+      }
+    }
+  ]
+}

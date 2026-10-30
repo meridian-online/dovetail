@@ -164,6 +164,7 @@ fn email_is_labelled() {
     let expected = match s.typing {
         TypingSource::Profiled { .. } => "profiled",
         TypingSource::Floor { .. } => "floor",
+        TypingSource::Packages => "packages",
     };
     assert_eq!(source, expected);
 }

@@ -1,0 +1,28 @@
+{
+  "name": "promo_codes",
+  "resources": [
+    {
+      "name": "promo_codes",
+      "path": "../../source/promo_codes.csv",
+      "format": "csv",
+      "schema": {
+        "fields": [
+          {
+            "name": "code",
+            "type": "string"
+          },
+          {
+            "name": "discount_pct",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "valid_to",
+            "type": "date",
+            "x-finetype-label": "datetime.date.iso"
+          }
+        ]
+      }
+    }
+  ]
+}

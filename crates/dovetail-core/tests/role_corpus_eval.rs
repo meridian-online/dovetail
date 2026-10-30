@@ -377,6 +377,7 @@ fn typing_label(t: &TypingSource) -> &'static str {
     match t {
         TypingSource::Profiled { .. } => "profiled",
         TypingSource::Floor { .. } => "floor",
+        TypingSource::Packages => "packages",
     }
 }
 

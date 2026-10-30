@@ -321,12 +321,14 @@ pub fn score_table(
     let typing_str = match typing {
         TypingSource::Profiled { .. } => "profiled".to_string(),
         TypingSource::Floor { reason } => format!("floor: {reason}"),
+        TypingSource::Packages => "packages".to_string(),
     };
     let mut evidence = vec![match typing {
         TypingSource::Profiled {
             extension_version, ..
         } => format!("typing: profiled by {extension_version}"),
         TypingSource::Floor { reason } => format!("typing: floor ({reason})"),
+        TypingSource::Packages => "typing: packages (labels from the data packages)".to_string(),
     }];
     let audit_time_fields: Vec<String> = t
         .time_columns
@@ -826,6 +828,7 @@ impl RoleModel {
                 extension_version, ..
             } => format!("typing: profiled by {extension_version}\n"),
             TypingSource::Floor { reason } => format!("typing: floor: {reason}\n"),
+            TypingSource::Packages => "typing: packages\n".to_string(),
         };
         let mut calls: Vec<&RoleCall> = self.tables.iter().collect();
         calls.sort_by(|a, b| (a.role, &a.table).cmp(&(b.role, &b.table)));

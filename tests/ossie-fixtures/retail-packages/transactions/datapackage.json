@@ -1,0 +1,48 @@
+{
+  "name": "transactions",
+  "resources": [
+    {
+      "name": "transactions",
+      "path": "../../source/transactions.csv",
+      "format": "csv",
+      "schema": {
+        "fields": [
+          {
+            "name": "txn_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "customer_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "store_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "sku",
+            "type": "string"
+          },
+          {
+            "name": "quantity",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "amount",
+            "type": "number",
+            "x-finetype-label": "finance.currency.amount"
+          },
+          {
+            "name": "purchased_at",
+            "type": "datetime",
+            "x-finetype-label": "datetime.timestamp.iso_8601"
+          }
+        ]
+      }
+    }
+  ]
+}

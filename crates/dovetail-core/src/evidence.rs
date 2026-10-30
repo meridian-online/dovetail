@@ -18,6 +18,8 @@ use std::path::Path;
 use duckdb::Connection;
 
 use crate::finetype_ext::{self, TypingRequest, TypingSource};
+use crate::ossie::LINEAGE;
+use crate::packages::SourceTable;
 use crate::relate::{self, quote, type_family, ColumnRef, Edge, FIELD_SAMPLE_N};
 use crate::roles::{points_at, CarriedKey, TableEvidence, TimeColumn};
 
@@ -146,6 +148,21 @@ pub struct Session {
     /// Labels already known, by [`LabelKey`]; [`column_evidence`] types only
     /// the columns missing from it.
     known_labels: BTreeMap<LabelKey, Option<String>>,
+    /// For a session built by [`Session::over`]: each source table's name and
+    /// where its full data is read from.
+    full_relations: BTreeMap<String, String>,
+    /// The sample size [`Session::over`] was asked for.
+    sample: Option<u64>,
+}
+
+/// How a session built by [`Session::over`] labels its columns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionTyping {
+    /// From the source tables' package fields; a field with no label, and a
+    /// column with no field, is untyped.
+    Packages,
+    /// As [`Session::attach`] types.
+    Request(TypingRequest),
 }
 
 /// A column's table, name and DuckDB type: what a known label is filed under.
@@ -177,6 +194,101 @@ impl Session {
         Ok(Self::with_typing(conn, typing, ":memory:"))
     }
 
+    /// Model `tables` of the database at `db`. `db` is attached read-only as
+    /// `"full"` (a keyword, so quoted), and `src` is an in-memory catalog holding each table under its
+    /// name, without the lineage columns: a view over the full data when
+    /// `sample` is `None`, else a copy of at most `sample` rows drawn by a
+    /// reservoir sample at a fixed seed on one thread (a table of that size or
+    /// less is copied whole). The full data stays readable through
+    /// [`Session::full_relation`].
+    pub fn over(
+        db: &Path,
+        tables: &[SourceTable],
+        sample: Option<u64>,
+        typing: SessionTyping,
+    ) -> Result<Session, EvidenceError> {
+        let path = db.to_str().ok_or_else(|| {
+            EvidenceError::Session(format!(
+                "the database path {} is not valid UTF-8",
+                db.display()
+            ))
+        })?;
+        let conn = open()?;
+        conn.execute_batch(&format!(
+            "ATTACH '{}' AS \"full\" (READ_ONLY); ATTACH ':memory:' AS src;",
+            path.replace('\'', "''")
+        ))?;
+        let full = list_columns(&conn, "full")?;
+        let mut full_relations = BTreeMap::new();
+        for t in tables {
+            let present: Vec<String> = full
+                .iter()
+                .filter(|c| c.table == t.relation && LINEAGE.contains(&c.column.as_str()))
+                .map(|c| quote(&c.column))
+                .collect();
+            let from = format!("\"full\".main.{}", quote(&t.relation));
+            let select = if present.is_empty() {
+                format!("SELECT * FROM {from}")
+            } else {
+                format!("SELECT * EXCLUDE ({}) FROM {from}", present.join(", "))
+            };
+            let target = format!("{SESSION_PREFIX}{}", quote(&t.name));
+            let rows: i64 =
+                conn.query_row(&format!("SELECT count(*) FROM {from}"), [], |r| r.get(0))?;
+            match sample {
+                Some(n) if rows > i64::try_from(n).unwrap_or(i64::MAX) => {
+                    with_one_thread(&conn, |conn| {
+                        conn.execute_batch(&format!(
+                            "CREATE TABLE {target} AS {select} \
+                             USING SAMPLE reservoir({n} ROWS) REPEATABLE (42)"
+                        ))?;
+                        Ok(())
+                    })?
+                }
+                Some(_) => conn.execute_batch(&format!("CREATE TABLE {target} AS {select}"))?,
+                None => conn.execute_batch(&format!("CREATE VIEW {target} AS {select}"))?,
+            }
+            full_relations.insert(t.name.clone(), from);
+        }
+        let mut session = match typing {
+            SessionTyping::Request(request) => Self::with_typing(conn, request, path),
+            SessionTyping::Packages => Session {
+                conn,
+                typing: TypingSource::Packages,
+                source: path.to_string(),
+                known_labels: BTreeMap::new(),
+                full_relations: BTreeMap::new(),
+                sample: None,
+            },
+        };
+        if typing == SessionTyping::Packages {
+            let mut labels = BTreeMap::new();
+            for c in list_columns(session.conn(), "src")? {
+                let label = tables
+                    .iter()
+                    .find(|t| t.name == c.table)
+                    .and_then(|t| t.fields.iter().find(|f| f.name == c.column))
+                    .and_then(|f| f.finetype.clone());
+                labels.insert(label_key(&c), label);
+            }
+            session.known_labels = labels;
+        }
+        session.full_relations = full_relations;
+        session.sample = sample;
+        Ok(session)
+    }
+
+    /// Where the full data of the source table `name` is read from, as a
+    /// qualified relation, for a session built by [`Session::over`].
+    pub fn full_relation(&self, name: &str) -> Option<&str> {
+        self.full_relations.get(name).map(String::as_str)
+    }
+
+    /// The sample size a session built by [`Session::over`] was asked for.
+    pub fn sampled(&self) -> Option<u64> {
+        self.sample
+    }
+
     pub fn conn(&self) -> &Connection {
         &self.conn
     }
@@ -203,6 +315,8 @@ impl Session {
             typing,
             source: source.to_string(),
             known_labels: BTreeMap::new(),
+            full_relations: BTreeMap::new(),
+            sample: None,
         }
     }
 }
@@ -509,6 +623,7 @@ pub(crate) fn write_column_evidence(
         (true, _) => "inherited",
         (false, TypingSource::Profiled { .. }) => "profiled",
         (false, TypingSource::Floor { .. }) => "floor",
+        (false, TypingSource::Packages) => "packages",
     };
     let create = if replace {
         "CREATE OR REPLACE TABLE"

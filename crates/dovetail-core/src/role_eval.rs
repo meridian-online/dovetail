@@ -115,6 +115,7 @@ fn typing_label(t: &TypingSource) -> &'static str {
     match t {
         TypingSource::Profiled { .. } => "profiled",
         TypingSource::Floor { .. } => "floor",
+        TypingSource::Packages => "packages",
     }
 }
 
@@ -234,6 +235,7 @@ pub fn stamp(typing: &TypingSource, dovetail_commit: &str) -> String {
             model_sha256,
         } => format!("{extension_version}, model sha256 {model_sha256}"),
         TypingSource::Floor { reason } => format!("floor typing ({reason})"),
+        TypingSource::Packages => "typing from the data packages".to_string(),
     };
     format!("{finetype}, dovetail {dovetail_commit}")
 }

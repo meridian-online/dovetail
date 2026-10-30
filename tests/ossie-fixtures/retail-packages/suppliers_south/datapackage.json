@@ -1,0 +1,28 @@
+{
+  "name": "suppliers_south",
+  "resources": [
+    {
+      "name": "suppliers_south",
+      "path": "../../source/suppliers_south.csv",
+      "format": "csv",
+      "schema": {
+        "fields": [
+          {
+            "name": "supplier_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "x-finetype-label": "representation.text.word"
+          },
+          {
+            "name": "country",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ]
+}

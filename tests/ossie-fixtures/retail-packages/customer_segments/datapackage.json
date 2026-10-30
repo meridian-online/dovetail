@@ -1,0 +1,28 @@
+{
+  "name": "customer_segments",
+  "resources": [
+    {
+      "name": "customer_segments",
+      "path": "../../source/customer_segments.csv",
+      "format": "csv",
+      "schema": {
+        "fields": [
+          {
+            "name": "customer_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "segment",
+            "type": "string",
+            "x-finetype-label": "representation.text.word"
+          },
+          {
+            "name": "assessed_on",
+            "type": "date"
+          }
+        ]
+      }
+    }
+  ]
+}

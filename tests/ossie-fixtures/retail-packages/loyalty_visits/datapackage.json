@@ -1,0 +1,38 @@
+{
+  "name": "loyalty_visits",
+  "resources": [
+    {
+      "name": "loyalty_visits",
+      "path": "../../source/loyalty_visits.csv",
+      "format": "csv",
+      "schema": {
+        "fields": [
+          {
+            "name": "visit_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "customer_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "store_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "visited_on",
+            "type": "date",
+            "x-finetype-label": "datetime.date.iso"
+          },
+          {
+            "name": "points",
+            "type": "integer"
+          }
+        ]
+      }
+    }
+  ]
+}

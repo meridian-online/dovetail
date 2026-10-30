@@ -69,7 +69,7 @@ pub fn profile_cache_stamp(typing: &TypingSource) -> Option<String> {
             finetype_commit(),
             duckdb_version()
         )),
-        TypingSource::Floor { .. } => None,
+        TypingSource::Floor { .. } | TypingSource::Packages => None,
     }
 }
 

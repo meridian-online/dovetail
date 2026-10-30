@@ -15,6 +15,7 @@ pub mod finetype_ext;
 pub mod identifiers;
 pub mod nominations;
 pub mod ossie;
+pub mod packages;
 pub mod relate;
 pub mod role_corpus;
 pub mod role_eval;
