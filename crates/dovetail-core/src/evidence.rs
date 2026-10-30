@@ -207,6 +207,11 @@ impl Session {
         sample: Option<u64>,
         typing: SessionTyping,
     ) -> Result<Session, EvidenceError> {
+        if sample == Some(0) {
+            return Err(EvidenceError::Session(
+                "a sample of 0 rows is not a sample".to_string(),
+            ));
+        }
         let path = db.to_str().ok_or_else(|| {
             EvidenceError::Session(format!(
                 "the database path {} is not valid UTF-8",
@@ -393,7 +398,8 @@ fn column_labels_of(
         .filter(|c| !s.known_labels.contains_key(&label_key(c)))
         .cloned()
         .collect();
-    let typed = if unknown.is_empty() {
+    // Under the packages a column no field labels is untyped, never floor-typed.
+    let typed = if unknown.is_empty() || matches!(s.typing, TypingSource::Packages) {
         Vec::new()
     } else if matches!(s.typing, TypingSource::Profiled { .. }) {
         with_one_thread(s.conn(), |conn| {

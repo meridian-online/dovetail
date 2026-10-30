@@ -238,3 +238,86 @@ fn sample_is_a_repeatable_copy_and_full_data_stays_readable() {
     assert_eq!(rows(&a, sum), rows(&b, sum));
     assert_eq!(a.sampled(), Some(100));
 }
+
+#[test]
+fn columns_a_package_does_not_label_stay_untyped() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = retail_session(dir.path(), None);
+    s.conn()
+        .execute_batch(
+            "CREATE VIEW src.main.extra AS
+             SELECT email FROM src.main.customers",
+        )
+        .unwrap();
+    let cols = column_evidence(&s).unwrap();
+    let extra = cols.iter().find(|c| c.table == "extra").unwrap();
+    assert_eq!(extra.label, None);
+}
+
+#[test]
+fn colliding_resources_are_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let copy = dir.path().join("packages");
+    for (pkg, name) in [("a", "Stores"), ("b", "stores")] {
+        std::fs::create_dir_all(copy.join(pkg)).unwrap();
+        std::fs::write(
+            copy.join(pkg).join("datapackage.json"),
+            format!(r#"{{"resources":[{{"name":"{name}","path":"s.csv"}}]}}"#),
+        )
+        .unwrap();
+    }
+    let err = read_packages(&copy, &["raw_stores".to_string()]).unwrap_err();
+    let text = err.to_string();
+    assert!(
+        text.contains("a/datapackage.json") && text.contains("b/datapackage.json"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_table_without_lineage_is_measured() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("plain.duckdb");
+    let conn = duckdb::Connection::open(&db).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE people AS SELECT i AS id, 'n' || i AS name FROM range(1, 4) t(i);",
+    )
+    .unwrap();
+    drop(conn);
+    let tables = dovetail_core::packages::all_tables(&db).unwrap();
+    let s = Session::over(
+        &db,
+        &tables,
+        None,
+        SessionTyping::Request(TypingRequest::Floor),
+    )
+    .unwrap();
+    let cols = column_evidence(&s).unwrap();
+    let measured: Vec<(&str, &str, i64)> = cols
+        .iter()
+        .map(|c| (c.table.as_str(), c.column.as_str(), c.rows))
+        .collect();
+    assert_eq!(measured, vec![("people", "id", 3), ("people", "name", 3)]);
+}
+
+#[test]
+fn a_sample_of_zero_rows_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_retail_db(dir.path());
+    let err = Session::over(&db, &[plain("stores")], Some(0), SessionTyping::Packages).err();
+    assert!(err.is_some_and(|e| e.to_string().contains("0 rows")));
+}
+
+#[test]
+fn x_part_becomes_source_part() {
+    let dir = tempfile::tempdir().unwrap();
+    let copy = dir.path().join("packages");
+    std::fs::create_dir_all(copy.join("book")).unwrap();
+    std::fs::write(
+        copy.join("book/datapackage.json"),
+        r#"{"resources":[{"name":"stores","path":"book.xlsx","x-part":"Sheet1"}]}"#,
+    )
+    .unwrap();
+    let (tables, _) = read_packages(&copy, &["raw_stores".to_string()]).unwrap();
+    assert_eq!(tables[0].source_part.as_deref(), Some("Sheet1"));
+}

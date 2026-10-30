@@ -47,6 +47,12 @@ pub enum PackagesError {
         path: PathBuf,
         source: std::io::Error,
     },
+    #[error("the resource {name} is in both {first} and {second}; DuckDB treats the names as one")]
+    Collision {
+        name: String,
+        first: PathBuf,
+        second: PathBuf,
+    },
     #[error("{path} is not a data package: {source}")]
     Json {
         path: PathBuf,
@@ -117,6 +123,7 @@ pub fn read_packages(
     package_dirs.sort();
 
     let mut tables = Vec::new();
+    let mut seen: Vec<(String, PathBuf)> = Vec::new();
     let mut warnings = Vec::new();
     for package_dir in package_dirs {
         let file = package_dir.join("datapackage.json");
@@ -127,6 +134,15 @@ pub fn read_packages(
                 source,
             })?;
         for r in package.resources {
+            let lower = r.name.to_lowercase();
+            if let Some((_, first)) = seen.iter().find(|(n, _)| *n == lower) {
+                return Err(PackagesError::Collision {
+                    name: r.name,
+                    first: first.clone(),
+                    second: file,
+                });
+            }
+            seen.push((lower, file.clone()));
             let relation = format!("{RAW_PREFIX}{}", r.name);
             if !db_tables.contains(&relation) {
                 warnings.push(format!(
