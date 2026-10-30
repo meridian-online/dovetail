@@ -18,7 +18,7 @@ Tier 1 is `role_eval_harness`, which CI runs; its part of `RESULTS.md` ends at t
 DOVETAIL_CORPUS=/path/to/corpus cargo test -p dovetail-core --test role_corpus_eval -- --nocapture
 ```
 
-It scores every database and every sampled table floor-only and profiled. A table or database that fails to load or score is listed under the record's `Skipped` heading rather than failing the run. FineType's profile is cached beside the data, in `ctu/<db>/.profile.json` and `.<file>.profile.json` beside each GitTables file, stamped with the extension's version, the model's SHA-256 and the finetype commit dovetail builds against; a cache with another stamp is profiled again. The same test file's `answer_keys_are_consistent` checks the answer keys against themselves and against the fetch script's list, with no data.
+It scores every database and every sampled table floor-only and profiled. A table or database that fails to load or score is listed under the record's `Skipped` heading rather than failing the run. FineType's profile is cached beside the data, in `ctu/<db>/.profile.json` and `.<file>.profile.json` beside each GitTables file, stamped with the extension's version, the model's SHA-256 and the finetype commit dovetail builds against; a cache with another stamp is profiled again. The eval reads the Parquet files through DuckDB's parquet extension, which dovetail's build does not compile in, so DuckDB installs it from its extension repository on the first run; neither stamp records that extension's build. The same test file's `answer_keys_are_consistent` checks the answer keys against themselves and against the fetch script's list, with no data.
 
 ## Fetching
 
