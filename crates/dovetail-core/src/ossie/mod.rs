@@ -11,10 +11,12 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+mod carry;
 mod meridian;
 mod project;
 mod wire;
 
+pub use carry::carry;
 pub use meridian::{
     Combination, DatasetMeta, DecidedBy, Evidence, FieldMeta, Grade, ModelMeta, RelationshipMeta,
     Role, SkippedSource, Typing, Verified,
