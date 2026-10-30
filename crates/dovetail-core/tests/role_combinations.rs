@@ -556,3 +556,23 @@ fn constant_columns_do_not_block_grouping_profiled() {
     assert_eq!(run.combinations[0].name, "suppliers");
     assert_eq!(run.combinations[0].kind, CombinationKind::Partition);
 }
+
+#[test]
+fn a_year_grouping_beats_a_word_grouping_of_the_same_size() {
+    // sales and costs by year group two ways, by year (sales_2023 with
+    // sales_2024) or by measure (sales_2023 with costs_2023), both in pairs.
+    // The year names a time, so each measure keeps its history.
+    let (_, run) = combined(
+        "CREATE TABLE sales_2023 AS SELECT CAST(i AS INTEGER) AS account_id,
+             CAST(i * 2 AS DECIMAL(10, 2)) AS amount FROM range(1, 41) t(i);
+         CREATE TABLE sales_2024 AS SELECT CAST(i AS INTEGER) AS account_id,
+             CAST(i * 3 AS DECIMAL(10, 2)) AS amount FROM range(1, 41) t(i);
+         CREATE TABLE costs_2023 AS SELECT CAST(i AS INTEGER) AS account_id,
+             CAST(i * 5 AS DECIMAL(10, 2)) AS amount FROM range(1, 41) t(i);
+         CREATE TABLE costs_2024 AS SELECT CAST(i AS INTEGER) AS account_id,
+             CAST(i * 7 AS DECIMAL(10, 2)) AS amount FROM range(1, 41) t(i);",
+    );
+    let mut names: Vec<&str> = run.combinations.iter().map(|c| c.name.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["costs", "sales"], "{:#?}", run.combinations);
+}

@@ -226,6 +226,7 @@ const REGION_WORDS: &[&str] = &[
 type GroupKey = (String, TokenKind, Vec<(String, &'static str)>);
 
 /// Find the tables of `cols` that combine. Groups are proposed largest first,
+/// then a year or date token ahead of a number and a number ahead of a word,
 /// then by name; a table joins at most one.
 pub fn find_combinations(
     s: &Session,
@@ -253,7 +254,12 @@ pub fn find_combinations(
     }
     let mut proposed: Vec<(&GroupKey, &Vec<(&str, Token)>)> =
         groups.iter().filter(|(_, m)| m.len() >= 2).collect();
-    proposed.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(b.0)));
+    proposed.sort_by(|a, b| {
+        b.1.len()
+            .cmp(&a.1.len())
+            .then(a.0 .1.cmp(&b.0 .1))
+            .then(a.0.cmp(b.0))
+    });
 
     let existing: BTreeSet<&str> = by_table.keys().copied().collect();
     let mut used: BTreeSet<&str> = BTreeSet::new();
