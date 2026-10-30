@@ -372,3 +372,12 @@ fn spread_fixed_width_digit_text_is_still_key_shaped() {
     let e = untyped_exact_name("lpad(CAST(i * 3001 AS VARCHAR), 6, '0')");
     assert!(e.parent_key_shaped);
 }
+
+#[test]
+fn moderately_spread_integer_keys_are_key_shaped() {
+    // 103 .. 175 in steps of 3: three times as many numbers as values, as
+    // sequence-assigned keys with gaps are (classicmodels' customer numbers).
+    let e = untyped_exact_name("CAST(100 + i * 3 AS INTEGER)");
+    assert!(e.parent_key_shaped);
+    assert_eq!(edge_from_evidence(&e).status, EdgeStatus::Accepted);
+}
