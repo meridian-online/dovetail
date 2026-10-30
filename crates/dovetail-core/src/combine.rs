@@ -138,6 +138,8 @@ fn tokens(name: &str) -> Vec<Token> {
         }
         let kind = if !r.2 {
             TokenKind::Word
+        } else if compact_date(&name[r.0..r.1]) {
+            TokenKind::Date
         } else if digits(&r, 4) && in_range(name, &r, 1900, 2100) {
             TokenKind::Year
         } else {
@@ -151,6 +153,25 @@ fn tokens(name: &str) -> Vec<Token> {
         i += 1;
     }
     out
+}
+
+/// Whether an all-digit run is a date written without separators: `YYYYMM`
+/// or `YYYYMMDD`, its year between 1900 and 2100 and its month and day real.
+fn compact_date(run: &str) -> bool {
+    if run.len() != 6 && run.len() != 8 {
+        return false;
+    }
+    let part = |a: usize, b: usize| run[a..b].parse::<u32>().ok();
+    let (Some(y), Some(m)) = (part(0, 4), part(4, 6)) else {
+        return false;
+    };
+    if !(1900..=2100).contains(&y) || !(1..=12).contains(&m) {
+        return false;
+    }
+    match run.len() {
+        8 => part(6, 8).is_some_and(|d| (1..=days_in_month(y, m)).contains(&d)),
+        _ => true,
+    }
 }
 
 fn days_in_month(year: u32, month: u32) -> u32 {
@@ -493,7 +514,17 @@ fn token_value(kind: TokenKind, v: &str) -> String {
     if kind != TokenKind::Date {
         return v.to_string();
     }
-    let v = v.replace('_', "-");
+    let v = if v.bytes().all(|b| b.is_ascii_digit()) {
+        // A compact date, YYYYMM or YYYYMMDD.
+        let mut iso = format!("{}-{}", &v[..4], &v[4..6]);
+        if v.len() == 8 {
+            iso.push('-');
+            iso.push_str(&v[6..]);
+        }
+        iso
+    } else {
+        v.replace('_', "-")
+    };
     if v.len() == 7 {
         format!("{v}-01")
     } else {
@@ -827,6 +858,16 @@ mod tests {
             ]
         );
         assert_eq!(cut("orders_7")[1], ("orders".into(), TokenKind::Digits));
+        assert_eq!(
+            cut("accounts_202401")[1],
+            ("accounts".into(), TokenKind::Date)
+        );
+        assert_eq!(cut("snap_20240229")[1], ("snap".into(), TokenKind::Date));
+        assert_eq!(cut("snap_20230229")[1], ("snap".into(), TokenKind::Digits));
+        assert_eq!(
+            cut("orders_202413")[1],
+            ("orders".into(), TokenKind::Digits)
+        );
         // A name of one token leaves nothing to call the combination.
         assert!(cut("customers").is_empty());
     }

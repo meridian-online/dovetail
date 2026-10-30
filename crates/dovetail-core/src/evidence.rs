@@ -39,15 +39,19 @@ pub const AUDIT_TIME_NAMES: &[&str] = &[
 
 /// How many times as many numbers as it has distinct values an integer
 /// column's values may span and still count as fixed-width keys; see
-/// `parent_key_shaped`.
-pub const KEY_SHAPE_MAX_SPAN: i64 = 2;
+/// `parent_key_shaped`. classicmodels' customer numbers, 122 of them from 103
+/// to 496, span 3.2 times their count; a unique five-digit measure of a few
+/// hundred values spans hundreds of times its count.
+pub const KEY_SHAPE_MAX_SPAN: i64 = 10;
 
 /// Words that make a date describe when the thing itself began, such as an
 /// employee's `hire_date` or a person's `BirthDate`, rather than date an
 /// occurrence. A name counts when one of its words, split at `_`, other
 /// separators and lower-to-upper case changes and compared lower-cased, is one
 /// of these. Such a date is an attribute of an entity: a table of employees
-/// with a hire date and a department it repeats is still employees.
+/// with a hire date and a department it repeats is still employees. Words that
+/// as often name a logged occurrence (`opened`, `signup`, `released`) are left
+/// out, since an event log of those actions has no other time.
 pub const LIFECYCLE_TIME_WORDS: &[&str] = &[
     "birth",
     "birthdate",
@@ -59,14 +63,6 @@ pub const LIFECYCLE_TIME_WORDS: &[&str] = &[
     "hiredate",
     "founded",
     "established",
-    "opened",
-    "registered",
-    "registration",
-    "joined",
-    "signup",
-    "release",
-    "released",
-    "debut",
 ];
 
 /// Whether `name` holds one of [`LIFECYCLE_TIME_WORDS`], as that list

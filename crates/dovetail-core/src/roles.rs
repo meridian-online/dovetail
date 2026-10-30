@@ -1458,6 +1458,32 @@ mod tests {
     }
 
     #[test]
+    fn a_log_of_opens_is_still_an_event() {
+        // opened_at times each open; it is not a lifecycle date.
+        let mut t = table(
+            "email_opens",
+            5000,
+            &["open_id", "campaign_id", "opened_at"],
+            &["open_id"],
+        );
+        t.key_is_identifier = true;
+        t.attribute_columns = strings(&["opened_at"]);
+        t.time_columns = vec![time("opened_at", 4900, false, true)];
+        let edges = vec![edge(
+            ("email_opens", "campaign_id"),
+            ("campaigns", "campaign_id"),
+            EdgeStatus::Accepted,
+            true,
+            40,
+            5000,
+            40,
+        )];
+        let call = score_table(&t, &edges, &[], &profiled());
+        expect(&call, Role::Event);
+        assert_eq!(call.time_field.as_deref(), Some("opened_at"));
+    }
+
+    #[test]
     fn lifecycle_names() {
         for name in [
             "hire_date",
@@ -1476,6 +1502,9 @@ mod tests {
             "shipdate",
             "rehire_flag",
             "ShipDate",
+            "opened_at",
+            "signup_date",
+            "released_at",
         ] {
             assert!(!is_lifecycle_name(name), "{name}");
         }

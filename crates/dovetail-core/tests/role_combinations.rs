@@ -455,6 +455,30 @@ fn numbered_shards_are_a_partition() {
 }
 
 #[test]
+fn compact_monthly_dates_are_a_snapshot() {
+    // accounts_202401 and accounts_202402 hold the same accounts: a compact
+    // date is a date, not a shard number.
+    let (_, run) = combined(
+        "CREATE TABLE accounts_202401 AS SELECT CAST(i AS INTEGER) AS account_id,
+             CAST(i * 10.5 AS DOUBLE) AS balance FROM range(1, 41) t(i);
+         CREATE TABLE accounts_202402 AS SELECT CAST(i AS INTEGER) AS account_id,
+             CAST(i * 11.5 AS DOUBLE) AS balance FROM range(1, 41) t(i);",
+    );
+    assert_eq!(run.combinations.len(), 1, "{:#?}", run.combinations);
+    let c = &run.combinations[0];
+    assert_eq!(c.kind, CombinationKind::Snapshot, "{:#?}", c.evidence);
+    let token = c.token_column.as_ref().unwrap();
+    assert_eq!(token.duckdb_type, "DATE");
+    assert_eq!(
+        token.values,
+        vec![
+            ("accounts_202401".to_string(), "2024-01-01".to_string()),
+            ("accounts_202402".to_string(), "2024-02-01".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn an_impossible_date_in_a_name_is_digits() {
     let (_, run) = combined(
         "CREATE TABLE sales_2024_02_30 AS SELECT CAST(i AS INTEGER) AS sale_id FROM range(1, 11) t(i);
