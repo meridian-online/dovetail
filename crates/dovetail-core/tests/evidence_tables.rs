@@ -125,6 +125,11 @@ fn self_reference_needs_a_self_pointer_name() {
                  CAST(i % 5 + 1 AS INTEGER) AS manager_rating FROM range(1, 41) t(i);",
             "staff",
         ),
+        (
+            "CREATE TABLE staff AS SELECT CAST(i AS INTEGER) AS staff_id,
+                 CAST(i % 5 + 1 AS INTEGER) AS manager_paid FROM range(1, 41) t(i);",
+            "staff",
+        ),
     ] {
         let (t, _) = measure(sql, table);
         assert!(t.self_references.is_empty(), "{table}: {t:#?}");
