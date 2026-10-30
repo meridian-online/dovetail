@@ -433,6 +433,28 @@ fn regional_tables_numbered_alike_are_a_partition() {
 }
 
 #[test]
+fn numbered_shards_are_a_partition() {
+    // customers_1 and customers_2 share most of their keys, and key plus
+    // shard number is unique, but a bare number numbers shards, not dates.
+    let (_, run) = combined(
+        "CREATE TABLE customers_1 AS SELECT CAST(i AS INTEGER) AS customer_id,
+             'Customer ' || CAST(i AS VARCHAR) AS name FROM range(1, 41) t(i);
+         CREATE TABLE customers_2 AS SELECT CAST(i AS INTEGER) AS customer_id,
+             'Customer ' || CAST(i AS VARCHAR) || 'b' AS name FROM range(1, 41) t(i);",
+    );
+    assert_eq!(run.combinations.len(), 1, "{:#?}", run.combinations);
+    let c = &run.combinations[0];
+    assert_eq!(c.kind, CombinationKind::Partition, "{:#?}", c.evidence);
+    assert!(
+        c.evidence.iter().any(|e| e.contains("local to each part")),
+        "{:#?}",
+        c.evidence
+    );
+    let t = run.tables.iter().find(|t| t.name == "customers").unwrap();
+    assert_eq!(t.snapshot_token, None);
+}
+
+#[test]
 fn an_impossible_date_in_a_name_is_digits() {
     let (_, run) = combined(
         "CREATE TABLE sales_2024_02_30 AS SELECT CAST(i AS INTEGER) AS sale_id FROM range(1, 11) t(i);
@@ -441,7 +463,7 @@ fn an_impossible_date_in_a_name_is_digits() {
     assert_eq!(run.combinations.len(), 1, "{:#?}", run.combinations);
     let token = run.combinations[0].token_column.as_ref().unwrap();
     assert_eq!(token.duckdb_type, "VARCHAR");
-    assert_eq!(token.name, "period");
+    assert_eq!(token.name, "part");
 }
 
 #[test]

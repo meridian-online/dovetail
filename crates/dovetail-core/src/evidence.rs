@@ -37,6 +37,62 @@ pub const AUDIT_TIME_NAMES: &[&str] = &[
     "last_update",
 ];
 
+/// How many times as many numbers as it has distinct values an integer
+/// column's values may span and still count as fixed-width keys; see
+/// `parent_key_shaped`.
+pub const KEY_SHAPE_MAX_SPAN: i64 = 2;
+
+/// Words that make a date describe when the thing itself began, such as an
+/// employee's `hire_date` or a person's `BirthDate`, rather than date an
+/// occurrence. A name counts when one of its words, split at `_`, other
+/// separators and lower-to-upper case changes and compared lower-cased, is one
+/// of these. Such a date is an attribute of an entity: a table of employees
+/// with a hire date and a department it repeats is still employees.
+pub const LIFECYCLE_TIME_WORDS: &[&str] = &[
+    "birth",
+    "birthdate",
+    "birthday",
+    "dob",
+    "born",
+    "hire",
+    "hired",
+    "hiredate",
+    "founded",
+    "established",
+    "opened",
+    "registered",
+    "registration",
+    "joined",
+    "signup",
+    "release",
+    "released",
+    "debut",
+];
+
+/// Whether `name` holds one of [`LIFECYCLE_TIME_WORDS`], as that list
+/// describes.
+pub fn is_lifecycle_name(name: &str) -> bool {
+    let mut words: Vec<String> = Vec::new();
+    let mut word = String::new();
+    let mut prev_lower = false;
+    for ch in name.chars() {
+        if !ch.is_ascii_alphanumeric() {
+            words.push(std::mem::take(&mut word));
+            prev_lower = false;
+            continue;
+        }
+        if ch.is_ascii_uppercase() && prev_lower {
+            words.push(std::mem::take(&mut word));
+        }
+        prev_lower = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+        word.push(ch.to_ascii_lowercase());
+    }
+    words.push(word);
+    words
+        .iter()
+        .any(|w| LIFECYCLE_TIME_WORDS.contains(&w.as_str()))
+}
+
 /// Column names that refer to another row of the same table, such as an
 /// employee's manager. A name counts lower-cased, with a trailing `_id` or `id`
 /// dropped, when what is left is an entry; or, when it did end in `_id` or
@@ -758,8 +814,12 @@ pub(crate) fn measure_edges(
                 edge.parent_key_shaped = match shapes.get(&key) {
                     Some(&shaped) => shaped,
                     None => {
-                        let shaped =
-                            parent_key_shaped(conn, &relation(&parent.table), &parent.column)?;
+                        let shaped = parent_key_shaped(
+                            conn,
+                            &relation(&parent.table),
+                            &parent.column,
+                            type_family(&parent.duckdb_type) == "int",
+                        )?;
                         shapes.insert(key, shaped);
                         shaped
                     }
@@ -782,12 +842,27 @@ pub(crate) fn measure_edges(
 /// since every all-digit value has the pattern `9`; all-digit values count
 /// towards the length share. A value that is not key-like counts against both
 /// shares. An empty column is not key-shaped.
+///
+/// An `integer` column's values count towards the length share only when they
+/// are dense, spanning at most [`KEY_SHAPE_MAX_SPAN`] times as many numbers as
+/// it has distinct values: keys are handed out in sequence, while unique
+/// measures of one width (populations from 10000 to 99999) are spread over
+/// their range.
 pub(crate) fn parent_key_shaped(
     conn: &Connection,
     relation: &str,
     column: &str,
+    integer: bool,
 ) -> Result<bool, EvidenceError> {
     let c = quote(column);
+    let dense = if integer {
+        format!(
+            "(SELECT max(CAST(s AS HUGEINT)) - min(CAST(s AS HUGEINT)) + 1
+                     <= {KEY_SHAPE_MAX_SPAN} * count(DISTINCT s) FROM k)"
+        )
+    } else {
+        "true".to_string()
+    };
     let sql = format!(
         "WITH v AS (SELECT CAST({c} AS VARCHAR) AS s FROM {relation} WHERE {c} IS NOT NULL),
               k AS (SELECT s FROM v
@@ -797,7 +872,8 @@ pub(crate) fn parent_key_shaped(
                                           '[0-9]+', '9', 'g') AS pat,
                          regexp_matches(s, '[A-Za-z]') AS lettered, length(s) AS len FROM k)
          SELECT (SELECT count(*) FROM v),
-                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p GROUP BY len)), 0),
+                coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p
+                                              WHERE lettered OR {dense} GROUP BY len)), 0),
                 coalesce((SELECT max(n) FROM (SELECT count(*) AS n FROM p WHERE lettered GROUP BY pat)), 0)"
     );
     let (total, same_len, same_pat): (i64, i64, i64) =
@@ -1017,6 +1093,15 @@ pub(crate) fn measure_table(
             rows,
         )?,
     };
+    let key_distinct: Vec<i64> = key
+        .iter()
+        .map(|k| {
+            tcols
+                .iter()
+                .find(|c| &c.column == k)
+                .map_or(0, |c| c.distinct)
+        })
+        .collect();
     let key_is_identifier = !key.is_empty()
         && key
             .iter()
@@ -1084,6 +1169,7 @@ pub(crate) fn measure_table(
         rows,
         columns: tcols.iter().map(|c| c.column.clone()).collect(),
         key,
+        key_distinct,
         key_is_identifier,
         time_columns,
         label_columns,

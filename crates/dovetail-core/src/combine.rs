@@ -4,9 +4,10 @@
 //! [`find_combinations`] groups tables with the same columns, compatible types
 //! and agreeing labels whose names differ by one token (a year, a date, a
 //! number or a word). Each group is a duplicate when its parts' rows are
-//! identical, a snapshot when its key largely overlaps across parts, and a
-//! partition otherwise. [`create_views`] builds each as a view in dovetail's
-//! own catalog over its `UNION ALL BY NAME` query, [`view_column_evidence`]
+//! identical, a snapshot when its key largely overlaps across parts and the
+//! token is a year or a date, and a partition otherwise. [`create_views`]
+//! builds each as a view in dovetail's own catalog over its
+//! `UNION ALL BY NAME` query, [`view_column_evidence`]
 //! types the views from their parts, and the joins are measured again with the
 //! views in their parts' place ([`run_combined`]). An edge to a snapshot's
 //! entity key is no relationship, since the key is not unique there; it is
@@ -402,9 +403,10 @@ fn classify(
                 SNAPSHOT_MIN_KEY_OVERLAP * 100.0
             ));
             CombinationKind::Partition
-        } else if kind == TokenKind::Word {
-            // A word such as a region names where the rows are, not when:
-            // the same values in two parts are a key local to each part.
+        } else if matches!(kind, TokenKind::Word | TokenKind::Digits) {
+            // A word such as a region names where the rows are, not when, and
+            // a bare number (customers_1, customers_2) numbers shards: the same
+            // values in two parts are a key local to each part.
             evidence.push(format!(
                 "{shared}, but {token_name} names a part rather than a time, \
                  so the key is local to each part and the parts are a partition"
@@ -475,7 +477,7 @@ fn token_name_and_type(kind: TokenKind, tokens: &[&str]) -> (&'static str, &'sta
     match kind {
         TokenKind::Year => ("year", "INTEGER"),
         TokenKind::Date => ("as_of", "DATE"),
-        TokenKind::Digits => ("period", "VARCHAR"),
+        TokenKind::Digits => ("part", "VARCHAR"),
         TokenKind::Word => {
             let region = tokens
                 .iter()
@@ -690,8 +692,12 @@ pub fn carry_snapshot_keys(
             .find(|c| c.table == e.parent.table && c.column == e.parent.column)
             .map(|c| type_family(&c.duckdb_type));
         if needs_key_shape(&distinct) && matches!(family, Some("text" | "int")) {
-            distinct.parent_key_shaped =
-                parent_key_shaped(s.conn(), &d.relation_sql(), &e.parent.column)?;
+            distinct.parent_key_shaped = parent_key_shaped(
+                s.conn(),
+                &d.relation_sql(),
+                &e.parent.column,
+                family == Some("int"),
+            )?;
         }
         let would = edge_from_evidence(&distinct);
         if would.status == EdgeStatus::Rejected {

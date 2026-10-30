@@ -356,3 +356,19 @@ fn unique_untyped_bigint_numbers_are_key_shaped() {
     let e = untyped_exact_name("CAST(1000 + i AS BIGINT)");
     assert!(e.parent_key_shaped);
 }
+
+#[test]
+fn spread_fixed_width_integers_are_not_key_shaped() {
+    // 13001 .. 85025: all five digits wide and unique, but spread over their
+    // range as a measure is, not handed out in sequence as a key is.
+    let e = untyped_exact_name("CAST(10000 + i * 3001 AS INTEGER)");
+    assert!(!e.parent_key_shaped);
+    assert_ne!(edge_from_evidence(&e).status, EdgeStatus::Accepted);
+}
+
+#[test]
+fn spread_fixed_width_digit_text_is_still_key_shaped() {
+    // Zero-padded codes stored as text are codes, however spread.
+    let e = untyped_exact_name("lpad(CAST(i * 3001 AS VARCHAR), 6, '0')");
+    assert!(e.parent_key_shaped);
+}

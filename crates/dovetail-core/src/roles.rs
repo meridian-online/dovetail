@@ -21,7 +21,9 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use crate::combine::{run_combined_with, Combination};
-use crate::evidence::{column_evidence, is_audit_name, ColumnEvidence, EvidenceError, Session};
+use crate::evidence::{
+    column_evidence, is_audit_name, is_lifecycle_name, ColumnEvidence, EvidenceError, Session,
+};
 use crate::finetype_ext::{TypingRequest, TypingSource};
 use crate::relate::{self, singularise, ColumnRef, Edge, EdgeStatus, RelateRun};
 pub use crate::role_key::{CombinationKind, Role};
@@ -40,6 +42,11 @@ pub const REFERENCE_MAX_LABEL_COLUMNS: usize = 4;
 pub const EVENT_MIN_TIME_FILL: f64 = 0.9;
 /// The most distinct dates, as a share of rows, a snapshot's date takes.
 pub const SNAPSHOT_MAX_DATE_RATIO: f64 = 0.01;
+/// The least share of the grid of a key's other values by its dates that a
+/// snapshot's rows fill, when its dates are too many for
+/// [`SNAPSHOT_MAX_DATE_RATIO`]: 12 stores over 24 months is 288 rows of a
+/// 288-cell grid, while an event's dates rarely repeat across its parents.
+pub const SNAPSHOT_MIN_GRID_FILL: f64 = 0.5;
 /// The least share of a bridge's columns that are pointers.
 pub const BRIDGE_MIN_POINTER_SHARE: f64 = 0.5;
 
@@ -54,7 +61,7 @@ pub const ENTITY_KEY: f64 = 0.4;
 pub const ENTITY_KNOWN_KEY: f64 = 0.25;
 /// Columns that describe the thing (places, dates, amounts), not just name it.
 pub const ENTITY_ATTRIBUTES: f64 = 0.2;
-/// Its timestamps, if any, are all audit-like.
+/// Its timestamps, if any, are all audit-like or lifecycle dates.
 pub const ENTITY_AUDIT_TIMES_ONLY: f64 = 0.15;
 /// Against: a timed column and a repeating pointer out, the shape of an event.
 pub const ENTITY_AGAINST_EVENT_SHAPE: f64 = 0.5;
@@ -141,6 +148,8 @@ pub struct TableEvidence {
     pub columns: Vec<String>,
     /// The unique column or pair; empty when none is unique.
     pub key: Vec<String>,
+    /// Each key column's distinct non-null values, in key order.
+    pub key_distinct: Vec<i64>,
     pub key_is_identifier: bool,
     pub time_columns: Vec<TimeColumn>,
     pub label_columns: Vec<String>,
@@ -363,8 +372,14 @@ pub fn score_table(
         .into_iter()
         .collect();
     let pointer_columns: BTreeSet<&str> = pointers.iter().map(|p| p.column.as_str()).collect();
-    let non_audit: Vec<&TimeColumn> = t.time_columns.iter().filter(|c| !is_audit(c)).collect();
-    let event_times: Vec<&TimeColumn> = non_audit
+    // A lifecycle date (hire_date, birth_date) describes the thing rather
+    // than timing an occurrence, so it is an attribute here, not a time.
+    let occurrence_times: Vec<&TimeColumn> = t
+        .time_columns
+        .iter()
+        .filter(|c| !is_audit(c) && !is_lifecycle_name(&c.name))
+        .collect();
+    let event_times: Vec<&TimeColumn> = occurrence_times
         .iter()
         .copied()
         .filter(|c| c.fill_rate + EPS >= EVENT_MIN_TIME_FILL)
@@ -391,7 +406,7 @@ pub fn score_table(
             .collect();
         !rest.is_empty() && rest.iter().all(|k| pointer_columns.contains(k.as_str()))
     };
-    let varying_other_date = non_audit.iter().any(|c| {
+    let varying_other_date = occurrence_times.iter().any(|c| {
         Some(c.name.as_str()) != snapshot_date.as_deref()
             && c.distinct as f64 / rows as f64 > SNAPSHOT_MAX_DATE_RATIO
     });
@@ -450,6 +465,11 @@ pub fn score_table(
     for c in &t.time_columns {
         if is_audit(c) {
             evidence.push(format!("{} is an audit timestamp", c.name));
+        } else if is_lifecycle_name(&c.name) {
+            evidence.push(format!(
+                "{} dates when the thing began, not an occurrence",
+                c.name
+            ));
         } else {
             let mut s = format!(
                 "{} is a time column, {} filled, {} distinct",
@@ -488,7 +508,7 @@ pub fn score_table(
         ENTITY_KEY
             + credit(!inbound.is_empty() || t.key_is_identifier, ENTITY_KNOWN_KEY)
             + credit(!describing.is_empty(), ENTITY_ATTRIBUTES)
-            + credit(non_audit.is_empty(), ENTITY_AUDIT_TIMES_ONLY)
+            + credit(occurrence_times.is_empty(), ENTITY_AUDIT_TIMES_ONLY)
             - credit(
                 !event_times.is_empty() && repeating,
                 ENTITY_AGAINST_EVENT_SHAPE,
@@ -510,7 +530,7 @@ pub fn score_table(
         credit(rows <= REFERENCE_MAX_ROWS, REFERENCE_SMALL)
             + credit(labels_only, REFERENCE_LABELS_ONLY)
             + credit(!inbound.is_empty(), REFERENCE_POINTED_AT)
-            - credit(!non_audit.is_empty(), REFERENCE_AGAINST_TIME)
+            - credit(!occurrence_times.is_empty(), REFERENCE_AGAINST_TIME)
             - credit(!pointers.is_empty(), REFERENCE_AGAINST_POINTER_OUT)
             - credit(!describing.is_empty(), REFERENCE_AGAINST_ATTRIBUTES)
             - credit(isolated, REFERENCE_AGAINST_ISOLATED)
@@ -527,7 +547,7 @@ pub fn score_table(
             )
             + credit(tuple, BRIDGE_UNIQUE_TUPLE)
             - credit(!inbound.is_empty(), BRIDGE_AGAINST_POINTED_AT)
-            - credit(!non_audit.is_empty(), BRIDGE_AGAINST_TIME)
+            - credit(!occurrence_times.is_empty(), BRIDGE_AGAINST_TIME)
     } else {
         0.0
     };
@@ -678,7 +698,8 @@ fn snapshot_signal(t: &TableEvidence, pointer_columns: &BTreeSet<&str>) -> Optio
             if let Some(c) = t.time_columns.iter().find(|c| &c.name == k && !is_audit(c)) {
                 // A combination's token is its as-of time by construction.
                 let token = t.snapshot_token.as_deref() == Some(k.as_str());
-                if token || c.distinct as f64 / t.rows as f64 <= SNAPSHOT_MAX_DATE_RATIO + EPS {
+                let few = c.distinct as f64 / t.rows as f64 <= SNAPSHOT_MAX_DATE_RATIO + EPS;
+                if token || few || dense_grid(t, k, c.distinct) {
                     return Some(SnapshotSignal::DatedKey {
                         date: c.name.clone(),
                         distinct: c.distinct,
@@ -693,6 +714,27 @@ fn snapshot_signal(t: &TableEvidence, pointer_columns: &BTreeSet<&str>) -> Optio
         }
     }
     None
+}
+
+/// Whether the rows fill at least [`SNAPSHOT_MIN_GRID_FILL`] of the grid of
+/// the key's other columns' values by the `date`'s, each side taking at least
+/// two values: every thing has a row at nearly every date.
+fn dense_grid(t: &TableEvidence, date: &str, date_distinct: i64) -> bool {
+    if date_distinct < 2 || t.key_distinct.len() != t.key.len() {
+        return false;
+    }
+    let others: Vec<i64> = t
+        .key
+        .iter()
+        .zip(&t.key_distinct)
+        .filter(|(k, _)| k.as_str() != date)
+        .map(|(_, d)| *d)
+        .collect();
+    if others.is_empty() || others.iter().any(|d| *d < 2) {
+        return false;
+    }
+    let cells = others.iter().map(|d| *d as f64).product::<f64>() * date_distinct as f64;
+    t.rows as f64 + EPS >= SNAPSHOT_MIN_GRID_FILL * cells
 }
 
 // --- The role model ------------------------------------------------------------
@@ -878,6 +920,7 @@ mod tests {
             rows,
             columns: strings(columns),
             key: strings(key),
+            key_distinct: vec![],
             key_is_identifier: false,
             time_columns: vec![],
             label_columns: vec![],
@@ -1218,6 +1261,39 @@ mod tests {
     }
 
     #[test]
+    fn small_monthly_snapshot_fills_its_grid() {
+        // 12 stores over 24 months: 24 dates in 288 rows is 8%, over the 1%
+        // ratio, but every store has a row in every month.
+        let mut t = table(
+            "store_months",
+            288,
+            &["store_id", "month", "headcount"],
+            &["store_id", "month"],
+        );
+        t.key_distinct = vec![12, 24];
+        t.attribute_columns = strings(&["month", "headcount"]);
+        t.time_columns = vec![time("month", 24, false, true)];
+        let edges = vec![edge(
+            ("store_months", "store_id"),
+            ("stores", "store_id"),
+            EdgeStatus::Accepted,
+            true,
+            12,
+            288,
+            12,
+        )];
+        let call = score_table(&t, &edges, &[], &profiled());
+        expect(&call, Role::Snapshot);
+        assert_eq!(call.time_field.as_deref(), Some("month"));
+
+        // The same rows with a store missing most months are no grid.
+        t.key_distinct = vec![12, 60];
+        t.time_columns = vec![time("month", 60, false, true)];
+        let call = score_table(&t, &edges, &[], &profiled());
+        assert_ne!(call.role, Role::Snapshot, "{:?}", call.scores);
+    }
+
+    #[test]
     fn one_date_snapshot() {
         let mut t = table(
             "customer_status",
@@ -1333,6 +1409,76 @@ mod tests {
             "{:#?}",
             call.evidence
         );
+    }
+
+    #[test]
+    fn hire_date_and_a_repeated_department_stay_an_entity() {
+        // Employees with a business date and a department they repeat have
+        // the shape of an event, unless the date is read as a lifecycle date.
+        let mut t = table(
+            "employees",
+            300,
+            &["employee_id", "name", "department_id", "hire_date"],
+            &["employee_id"],
+        );
+        t.key_is_identifier = true;
+        t.label_columns = strings(&["name"]);
+        t.attribute_columns = strings(&["hire_date"]);
+        t.time_columns = vec![time("hire_date", 280, false, true)];
+        let edges = vec![
+            edge(
+                ("employees", "department_id"),
+                ("departments", "department_id"),
+                EdgeStatus::Accepted,
+                true,
+                9,
+                300,
+                9,
+            ),
+            edge(
+                ("orders", "employee_id"),
+                ("employees", "employee_id"),
+                EdgeStatus::Accepted,
+                true,
+                250,
+                5000,
+                300,
+            ),
+        ];
+        let call = score_table(&t, &edges, &[], &profiled());
+        expect(&call, Role::Entity);
+        assert_eq!(call.time_field, None);
+        assert!(
+            call.evidence
+                .iter()
+                .any(|e| e == "hire_date dates when the thing began, not an occurrence"),
+            "{:#?}",
+            call.evidence
+        );
+    }
+
+    #[test]
+    fn lifecycle_names() {
+        for name in [
+            "hire_date",
+            "HireDate",
+            "HIREDATE",
+            "BirthDate",
+            "dob",
+            "date_of_birth",
+            "founded",
+        ] {
+            assert!(is_lifecycle_name(name), "{name}");
+        }
+        for name in [
+            "order_date",
+            "purchased_at",
+            "shipdate",
+            "rehire_flag",
+            "ShipDate",
+        ] {
+            assert!(!is_lifecycle_name(name), "{name}");
+        }
     }
 
     #[test]
