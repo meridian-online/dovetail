@@ -58,25 +58,24 @@ struct Column {
 /// with each `src` name replaced by that quoted relation, so it runs against the
 /// analyst's database alone.
 ///
-/// # Panics
+/// # Errors
 ///
-/// When the session's catalog cannot be read back, which a session that just ran the
-/// roles can always do.
+/// When the session's catalog cannot be read back.
 pub fn project(
     model: &RoleModel,
     tables: &[SourceTable],
     session: &Session,
     name: &str,
     provenance: &Provenance,
-) -> Model {
-    let (columns, counted) =
-        read_columns(session, &model.combinations).expect("the session's columns");
+) -> Result<Model, EvidenceError> {
+    let (columns, counted) = read_columns(session, &model.combinations)?;
     let ctx = Context {
         model,
         tables,
         session,
         columns,
         counted,
+        reserved: reserved_words(session)?,
     };
 
     let in_combination: BTreeMap<&str, &combine::Combination> = model
@@ -97,7 +96,7 @@ pub fn project(
     }
     datasets.sort_by(|a, b| a.name.cmp(&b.name));
 
-    Model {
+    Ok(Model {
         version: OSSIE_VERSION.to_string(),
         name: name.to_string(),
         description: None,
@@ -113,7 +112,7 @@ pub fn project(
         },
         extensions: Vec::new(),
         extras: Default::default(),
-    }
+    })
 }
 
 fn typing_of(typing: &TypingSource) -> Typing {
@@ -148,11 +147,22 @@ struct Context<'a> {
     columns: Columns,
     /// Each table's rows as the evidence counted them.
     counted: BTreeMap<String, i64>,
+    /// DuckDB's reserved keywords, lower case: a name among them is quoted in SQL.
+    reserved: BTreeSet<String>,
 }
 
 impl Context<'_> {
     fn call(&self, table: &str) -> Option<&RoleCall> {
         self.model.tables.iter().find(|c| c.table == table)
+    }
+
+    /// Say on `meta` which table `name` folds into, and as which struct column, when the
+    /// roles proposed folding it. A combination can be a fold's reference as a table can.
+    fn fold(&self, meta: &mut DatasetMeta, name: &str) {
+        if let Some(f) = self.model.folds.iter().find(|f| f.reference == name) {
+            meta.folded_into = Some(f.host.clone());
+            meta.fold_column = Some(f.struct_column.clone());
+        }
     }
 
     /// An untouched source table.
@@ -161,21 +171,10 @@ impl Context<'_> {
         let mut meta = self.meta(call, t.source_file.clone().unwrap_or_default());
         meta.source_part = t.source_part.clone();
         meta.rows = self.rows(&[t.name.as_str()]);
-        meta.folded_into = self
-            .model
-            .folds
-            .iter()
-            .find(|f| f.reference == t.name)
-            .map(|f| f.host.clone());
-        meta.fold_column = self
-            .model
-            .folds
-            .iter()
-            .find(|f| f.reference == t.name)
-            .map(|f| f.struct_column.clone());
+        self.fold(&mut meta, &t.name);
         Dataset {
             name: t.name.clone(),
-            source: relation_name(&t.relation),
+            source: self.sql_name(&t.relation),
             description: None,
             primary_key: call.map(|c| c.primary_key.clone()).unwrap_or_default(),
             fields: self.fields(&t.name, &[t.name.as_str()], call),
@@ -196,7 +195,7 @@ impl Context<'_> {
         meta.rows = self.rows(&[t.name.as_str()]);
         Dataset {
             name: t.name.clone(),
-            source: relation_name(&t.relation),
+            source: self.sql_name(&t.relation),
             description: None,
             primary_key: Vec::new(),
             fields: self.fields(&t.name, &[t.name.as_str()], call),
@@ -213,7 +212,11 @@ impl Context<'_> {
         let files: Vec<String> = c
             .parts
             .iter()
-            .filter_map(|p| self.table_of(p).and_then(|t| t.source_file.clone()))
+            .map(|p| {
+                self.table_of(p)
+                    .and_then(|t| t.source_file.clone())
+                    .unwrap_or_else(|| p.clone())
+            })
             .collect();
         let mut meta = self.meta(call, files.join(", "));
         meta.combination = Some(Combination {
@@ -237,6 +240,7 @@ impl Context<'_> {
             _ => c.parts.iter().map(String::as_str).collect(),
         };
         meta.rows = self.rows(&read);
+        self.fold(&mut meta, &c.name);
         Dataset {
             name: c.name.clone(),
             source: self.combined_source(c),
@@ -263,6 +267,15 @@ impl Context<'_> {
             sql = sql.replace(&format!("{SESSION_PREFIX}{}", quote(p)), &quote(relation));
         }
         sql
+    }
+
+    /// A name as SQL: bare when it is a plain identifier DuckDB does not reserve, else quoted.
+    fn sql_name(&self, name: &str) -> String {
+        if simple(name) && !self.reserved.contains(&name.to_ascii_lowercase()) {
+            name.to_string()
+        } else {
+            quote(name)
+        }
     }
 
     fn table_of(&self, name: &str) -> Option<&SourceTable> {
@@ -346,7 +359,7 @@ impl Context<'_> {
                 }
                 Field {
                     name: c.name.clone(),
-                    expression: Expression::sql(column_expression(&c.name)),
+                    expression: Expression::sql(self.sql_name(&c.name)),
                     datatype,
                     meta: FieldMeta {
                         finetype: c.label.clone(),
@@ -477,9 +490,34 @@ impl Context<'_> {
                 }
             })
             .collect();
+        unique_names(&mut out);
         out.sort_by(|a, b| a.name.cmp(&b.name));
         out
     }
+}
+
+/// Make every relationship's name unique, deterministically and in the order given: a
+/// name two share takes `_<to column>` after it, and one still shared takes a counter.
+fn unique_names(rels: &mut [Relationship]) {
+    let names: Vec<String> = rels.iter().map(|r| r.name.clone()).collect();
+    for (r, name) in rels.iter_mut().zip(&names) {
+        if shared_in(&names, name) > 1 {
+            r.name = format!("{name}_{}", r.to_columns.join("_"));
+        }
+    }
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    for r in rels.iter_mut() {
+        let base = r.name.clone();
+        let mut n = 1;
+        while !seen.insert(r.name.clone()) {
+            n += 1;
+            r.name = format!("{base}_{n}");
+        }
+    }
+}
+
+fn shared_in(names: &[String], name: &str) -> usize {
+    names.iter().filter(|n| *n == name).count()
 }
 
 fn count(n: i64) -> u64 {
@@ -516,18 +554,16 @@ fn simple(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// A table's relation as SQL: bare when it is a plain identifier, else quoted.
-fn relation_name(relation: &str) -> String {
-    if simple(relation) {
-        relation.to_string()
-    } else {
-        quote(relation)
-    }
-}
-
-/// A column as an expression: bare when it is a plain identifier, else quoted.
-fn column_expression(column: &str) -> String {
-    relation_name(column)
+/// DuckDB's reserved keywords, read from the session's own engine so the list is the one
+/// the pinned DuckDB parses by.
+fn reserved_words(s: &Session) -> Result<BTreeSet<String>, EvidenceError> {
+    let mut stmt = s.conn().prepare(
+        "SELECT keyword_name FROM duckdb_keywords() WHERE keyword_category = 'reserved'",
+    )?;
+    let words = stmt
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<duckdb::Result<BTreeSet<String>>>()?;
+    Ok(words.into_iter().map(|w| w.to_ascii_lowercase()).collect())
 }
 
 /// Every dataset's columns in order, typed as the run typed them. The types and
@@ -537,7 +573,7 @@ fn read_columns(
     s: &Session,
     combos: &[combine::Combination],
 ) -> Result<(Columns, BTreeMap<String, i64>), EvidenceError> {
-    let known = match read_evidence(s) {
+    let known = match read_evidence(s)? {
         Some(rows) => rows,
         None => {
             let cols = column_evidence(s)?;
@@ -594,15 +630,21 @@ fn read_columns(
     Ok((out, counted))
 }
 
-/// The column evidence the run wrote to the session, if it did.
-fn read_evidence(s: &Session) -> Option<Vec<ColumnEvidence>> {
-    let mut stmt = s
-        .conn()
-        .prepare(
-            "SELECT \"table\", \"column\", duckdb_type, \"rows\", non_null, \"distinct\", label, audit_name
-             FROM memory.main.column_evidence",
-        )
-        .ok()?;
+/// The column evidence the run wrote to the session; `None` when it wrote none.
+fn read_evidence(s: &Session) -> Result<Option<Vec<ColumnEvidence>>, EvidenceError> {
+    let written: i64 = s.conn().query_row(
+        "SELECT count(*) FROM information_schema.tables
+         WHERE table_catalog = 'memory' AND table_schema = 'main' AND table_name = 'column_evidence'",
+        [],
+        |r| r.get(0),
+    )?;
+    if written == 0 {
+        return Ok(None);
+    }
+    let mut stmt = s.conn().prepare(
+        "SELECT \"table\", \"column\", duckdb_type, \"rows\", non_null, \"distinct\", label, audit_name
+         FROM memory.main.column_evidence",
+    )?;
     let rows = stmt
         .query_map([], |r| {
             Ok(ColumnEvidence {
@@ -615,7 +657,7 @@ fn read_evidence(s: &Session) -> Option<Vec<ColumnEvidence>> {
                 label: r.get(6)?,
                 audit_name: r.get(7)?,
             })
-        })
-        .ok()?;
-    rows.collect::<Result<Vec<_>, _>>().ok()
+        })?
+        .collect::<duckdb::Result<Vec<_>>>()?;
+    Ok(Some(rows))
 }

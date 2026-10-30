@@ -14,7 +14,8 @@
           },
           {
             "name": "name",
-            "type": "string"
+            "type": "string",
+            "x-finetype-label": "representation.text.word"
           }
         ]
       }

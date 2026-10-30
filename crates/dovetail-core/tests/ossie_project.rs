@@ -38,7 +38,7 @@ fn retail(dir: &Path) -> (Model, std::path::PathBuf) {
         sample_rows: None,
     };
     (
-        project(&roles, &tables, &session, "retail", &provenance),
+        project(&roles, &tables, &session, "retail", &provenance).unwrap(),
         db,
     )
 }
@@ -67,13 +67,9 @@ fn every_source_table_is_a_dataset() {
     assert_eq!(names, ["members", "price_list", "suppliers"]);
 
     let categories = dataset(&m, "categories");
-    // The answer key calls categories a reference folded into products. Over the packages
-    // fixture the roles score it an entity and fold nothing: the fixture leaves
-    // `categories.name` unlabelled, so the table has no label column to be a reference by.
-    // The projection writes the call the roles made.
-    assert_eq!(categories.meta.role, Role::Entity);
-    assert_eq!(categories.meta.folded_into, None);
-    assert_eq!(categories.meta.fold_column, None);
+    assert_eq!(categories.meta.role, Role::Reference);
+    assert_eq!(categories.meta.folded_into.as_deref(), Some("products"));
+    assert_eq!(categories.meta.fold_column.as_deref(), Some("category"));
     assert_eq!(categories.source, "raw_categories");
     assert_eq!(categories.meta.rows, Some(8));
     assert_eq!(
@@ -205,7 +201,7 @@ fn audit_times_are_not_time_dimensions() {
         typing: roles.typing.clone(),
         sample_rows: None,
     };
-    let m = project(&roles, &tables, &session, "m", &provenance);
+    let m = project(&roles, &tables, &session, "m", &provenance).unwrap();
     let dim = |f: &str| {
         dataset(&m, "customers")
             .fields
@@ -277,7 +273,7 @@ fn empty_table_is_unclear_with_zero_rows() {
         typing: roles.typing.clone(),
         sample_rows: None,
     };
-    let m = project(&roles, &tables, &session, "empty", &provenance);
+    let m = project(&roles, &tables, &session, "empty", &provenance).unwrap();
     let d = dataset(&m, "notes");
     assert_eq!(d.meta.role, Role::Unclear);
     assert_eq!(d.meta.rows, Some(0));
@@ -298,6 +294,11 @@ fn golden_matches() {
     let (again, _) = retail(dir2.path());
     assert_eq!(write(&again), yaml, "project is deterministic");
 
+    // The golden names the generator without its version, so a release does not fail it.
+    let generator = format!("dovetail {}\"", env!("CARGO_PKG_VERSION"));
+    assert!(yaml.contains(&generator));
+    let yaml = yaml.replace(&generator, "dovetail VERSION\"");
+
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(GOLDEN);
     if std::env::var_os("DOVETAIL_WRITE_OSSIE_GOLDEN").is_some() {
         std::fs::write(&path, &yaml).unwrap();
@@ -305,4 +306,187 @@ fn golden_matches() {
     let golden = std::fs::read_to_string(&path).expect("the golden exists");
     assert_eq!(yaml, golden);
     validate(&golden);
+}
+
+/// Run the roles over `tables` in the database at `db` and project them.
+fn project_plain(
+    db: &Path,
+    tables: &[SourceTable],
+    typing: SessionTyping,
+) -> (dovetail_core::roles::RoleModel, Model) {
+    let session = Session::over(db, tables, None, typing).unwrap();
+    let roles = run_session(&session).unwrap();
+    let provenance = Provenance {
+        pass: Verified::Sample,
+        typing: roles.typing.clone(),
+        sample_rows: None,
+    };
+    let m = project(&roles, tables, &session, "m", &provenance).unwrap();
+    (roles, m)
+}
+
+fn table(name: &str, relation: &str) -> SourceTable {
+    SourceTable {
+        name: name.into(),
+        relation: relation.into(),
+        source_file: None,
+        source_part: None,
+        fields: Vec::new(),
+    }
+}
+
+fn db_from(dir: &Path, sql: &str) -> std::path::PathBuf {
+    let path = dir.join("plain.duckdb");
+    duckdb::Connection::open(&path)
+        .unwrap()
+        .execute_batch(sql)
+        .unwrap();
+    path
+}
+
+fn packaged(name: &str, fields: &[(&str, &str, Option<&str>)]) -> SourceTable {
+    use dovetail_core::packages::PackageField;
+    SourceTable {
+        name: name.into(),
+        relation: format!("raw_{name}"),
+        source_file: None,
+        source_part: None,
+        fields: fields
+            .iter()
+            .map(|(n, t, l)| PackageField {
+                name: n.to_string(),
+                frictionless_type: t.to_string(),
+                finetype: l.map(str::to_string),
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn a_combination_can_be_a_folded_reference() {
+    const INT: &str = "representation.numeric.integer_number";
+    const WORD: &str = "representation.text.word";
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_db_from(
+        dir.path(),
+        "CREATE TABLE colour_2024 AS SELECT i AS colour_id, 'colour ' || i AS label FROM range(1, 9) t(i);
+         CREATE TABLE colour_2025 AS SELECT * FROM colour_2024;
+         CREATE TABLE items AS SELECT i AS item_id, 'item ' || i AS title, (i % 8) + 1 AS colour_id
+             FROM range(1, 201) t(i);",
+    );
+    let tables = vec![
+        packaged(
+            "colour_2024",
+            &[
+                ("colour_id", "integer", Some(INT)),
+                ("label", "string", Some(WORD)),
+            ],
+        ),
+        packaged(
+            "colour_2025",
+            &[
+                ("colour_id", "integer", Some(INT)),
+                ("label", "string", Some(WORD)),
+            ],
+        ),
+        packaged(
+            "items",
+            &[
+                ("item_id", "integer", Some(INT)),
+                ("title", "string", Some(WORD)),
+                ("colour_id", "integer", Some(INT)),
+            ],
+        ),
+    ];
+    let (roles, m) = project_plain(&db, &tables, SessionTyping::Packages);
+    assert_eq!(roles.combinations.len(), 1, "{:?}", roles.combinations);
+    let name = roles.combinations[0].name.clone();
+    assert_eq!(roles.folds.len(), 1, "{:?}", roles.folds);
+    let d = dataset(&m, &name);
+    assert_eq!(d.meta.folded_into.as_deref(), Some("items"));
+    assert_eq!(
+        d.meta.fold_column.as_deref(),
+        Some(roles.folds[0].struct_column.as_str())
+    );
+    // Its parts are not folded; they say what they were combined into.
+    assert_eq!(dataset(&m, "colour_2024").meta.folded_into, None);
+}
+
+#[test]
+fn reserved_words_are_quoted() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = db_from(
+        dir.path(),
+        r#"CREATE TABLE "group" AS SELECT i AS group_id, 'g' || i AS "order" FROM range(1, 31) t(i);"#,
+    );
+    let tables = vec![table("group", "group")];
+    let (_, m) = project_plain(&db, &tables, SessionTyping::Request(TypingRequest::Floor));
+    let d = dataset(&m, "group");
+    assert_eq!(d.source, "\"group\"");
+    let sql = |n: &str| {
+        d.fields
+            .iter()
+            .find(|f| f.name == n)
+            .unwrap()
+            .expression
+            .sql
+            .clone()
+    };
+    assert_eq!(sql("order").as_deref(), Some("\"order\""));
+    assert_eq!(sql("group_id").as_deref(), Some("group_id"));
+    // The source and the expression run as written.
+    let conn = duckdb::Connection::open(&db).unwrap();
+    let n: i64 = conn
+        .query_row(
+            &format!("SELECT count({}) FROM {}", sql("order").unwrap(), d.source),
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(n, 30);
+}
+
+#[test]
+fn relationship_names_are_unique() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = db_from(
+        dir.path(),
+        "CREATE TABLE things AS SELECT i AS thing_id, i AS other_id, 'thing ' || i AS label FROM range(1, 41) t(i);
+         CREATE TABLE links AS SELECT i AS link_id, (i % 40) + 1 AS thing_id FROM range(1, 401) t(i);",
+    );
+    let tables = vec![table("things", "things"), table("links", "links")];
+    let (_, m) = project_plain(&db, &tables, SessionTyping::Request(TypingRequest::Floor));
+    let from_links: Vec<_> = m
+        .relationships
+        .iter()
+        .filter(|r| r.from == "links")
+        .collect();
+    assert!(
+        from_links.len() >= 2,
+        "{:?}",
+        m.relationships.iter().map(|r| &r.name).collect::<Vec<_>>()
+    );
+    let mut names: Vec<&str> = m.relationships.iter().map(|r| r.name.as_str()).collect();
+    let all = names.len();
+    names.sort();
+    names.dedup();
+    assert_eq!(names.len(), all, "{names:?}");
+}
+
+#[test]
+fn a_unique_child_column_with_nulls_is_one_to_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = db_from(
+        dir.path(),
+        "CREATE TABLE parents AS SELECT i AS parent_id, 'parent ' || i AS label FROM range(1, 41) t(i);
+         CREATE TABLE kids AS SELECT i AS kid_id, CASE WHEN i <= 20 THEN i END AS parent_id FROM range(1, 41) t(i);",
+    );
+    let tables = vec![table("parents", "parents"), table("kids", "kids")];
+    let (_, m) = project_plain(&db, &tables, SessionTyping::Request(TypingRequest::Floor));
+    let r = m
+        .relationships
+        .iter()
+        .find(|r| r.from == "kids" && r.to == "parents")
+        .expect("kids point at parents");
+    assert_eq!(r.meta.cardinality, "1:1");
 }
