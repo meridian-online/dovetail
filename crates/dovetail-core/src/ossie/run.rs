@@ -41,6 +41,9 @@ pub enum ModelError {
     },
     #[error("{path}: {source}")]
     Ossie { path: PathBuf, source: OssieError },
+    /// A pass that is neither `sample` nor `full`.
+    #[error("the pass is sample or full, not {0:?}")]
+    Pass(Verified),
     #[error(transparent)]
     Packages(#[from] PackagesError),
     #[error(transparent)]
@@ -59,7 +62,7 @@ pub enum ModelError {
 ///
 /// # Errors
 ///
-/// When `base` cannot be read, the packages cannot be read, or the database cannot be
+/// When the pass is neither sample nor full, `base` cannot be read, the packages cannot be read, or the database cannot be
 /// measured.
 pub fn run_model(req: &ModelRequest) -> Result<(Model, Vec<String>), ModelError> {
     let base = req.base.as_deref().map(read_model).transpose()?;
@@ -92,7 +95,8 @@ pub fn run_model(req: &ModelRequest) -> Result<(Model, Vec<String>), ModelError>
                 None => discover(req, &tables, typing, None, &mut warnings)?,
             }
         }
-        _ => discover(req, &tables, typing, Some(SAMPLE_ROWS), &mut warnings)?,
+        Verified::Sample => discover(req, &tables, typing, Some(SAMPLE_ROWS), &mut warnings)?,
+        Verified::Unmeasured => return Err(ModelError::Pass(req.pass)),
     };
     Ok((
         match &base {

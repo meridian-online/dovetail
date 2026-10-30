@@ -7,7 +7,7 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use common::*;
-use dovetail_core::evidence::{Session, SessionTyping};
+use dovetail_core::evidence::{Session, SessionTyping, SAMPLE_ROWS};
 use dovetail_core::finetype_ext::TypingRequest;
 use dovetail_core::ossie::{
     project, read, run_model, verify_full, write, Grade, Model, ModelRequest, Provenance, Role,
@@ -43,9 +43,9 @@ const BROKEN: &str = "
         SELECT i AS order_id, (i % 2000) + 1 AS customer_id FROM range(1, 20001) t(i)
         UNION ALL SELECT i, i + 5000 FROM range(20001, 22001) t(i);";
 
-/// The sample pass's proposal over `db`'s customers and orders, from 500-row samples.
-fn sample_proposal(db: &Path) -> Model {
-    let tables = [plain("customers"), plain("orders")];
+/// The sample pass's proposal over `db`'s `tables`, from 500-row samples.
+fn sample_of(db: &Path, tables: &[&str]) -> Model {
+    let tables: Vec<SourceTable> = tables.iter().map(|t| plain(t)).collect();
     let s = Session::over(db, &tables, Some(500), SessionTyping::Packages).unwrap();
     let roles = run_session(&s).unwrap();
     let provenance = Provenance {
@@ -54,6 +54,146 @@ fn sample_proposal(db: &Path) -> Model {
         sample_rows: Some(500),
     };
     project(&roles, &tables, &s, "shop", &provenance).unwrap()
+}
+
+fn sample_proposal(db: &Path) -> Model {
+    sample_of(db, &["customers", "orders"])
+}
+
+/// The sample proposal of `clean`'s `tables` (500-row samples), and that proposal
+/// verified on `broken`, the same tables after more rows arrived.
+fn sample_then_full(clean: &str, broken: &str, tables: &[&str]) -> (Model, Model) {
+    let dir = tempfile::tempdir().unwrap();
+    let clean = build_raw_db_from(&subdir(dir.path(), "clean"), clean);
+    let broken = build_raw_db_from(&subdir(dir.path(), "broken"), broken);
+    let sample = sample_of(&clean, tables);
+    let full_tables: Vec<SourceTable> = tables.iter().map(|t| plain(t)).collect();
+    let s = Session::over(&broken, &full_tables, None, SessionTyping::Packages).unwrap();
+    let full = verify_full(sample.clone(), &s);
+    (sample, full)
+}
+
+fn join_of(m: &Model, from: &str, to: &str) -> dovetail_core::ossie::Relationship {
+    m.relationships
+        .iter()
+        .find(|r| r.from == from && r.to == to)
+        .cloned()
+        .unwrap_or_else(|| panic!("no {from} to {to} join in {:#?}", m.relationships))
+}
+
+fn dataset_of(m: &Model, name: &str) -> dovetail_core::ossie::Dataset {
+    m.datasets.iter().find(|d| d.name == name).cloned().unwrap()
+}
+
+#[test]
+fn full_pass_remeasures_cardinality() {
+    // 1,000 accounts with one profile each; then ten more profiles for accounts 1 to 10.
+    let clean = "
+        CREATE TABLE accounts AS
+            SELECT i AS account_id, 'account ' || i AS account_name FROM range(1, 1001) t(i);
+        CREATE TABLE profiles AS
+            SELECT i AS profile_id, i AS account_id, 'bio ' || i AS bio FROM range(1, 1001) t(i);";
+    let broken = format!(
+        "{clean}
+        INSERT INTO profiles SELECT i + 1000, i, 'second bio ' || i FROM range(1, 11) t(i);"
+    );
+    let (sample, full) = sample_then_full(clean, &broken, &["accounts", "profiles"]);
+    assert_eq!(
+        join_of(&sample, "profiles", "accounts").meta.cardinality,
+        "1:1"
+    );
+    let j = join_of(&full, "profiles", "accounts");
+    assert_eq!(j.meta.cardinality, "N:1");
+    assert_eq!(j.meta.verified, Verified::Full);
+    assert_eq!(j.meta.grade, Grade::Likely);
+}
+
+#[test]
+fn a_repeated_parent_key_warns() {
+    // No orphans: only the second customer 7 weakens the join.
+    let broken = format!(
+        "{CLEAN}
+        INSERT INTO customers VALUES (7, 'customer 7 again');"
+    );
+    let (sample, full) = sample_then_full(CLEAN, &broken, &["customers", "orders"]);
+    assert_eq!(
+        join_of(&sample, "orders", "customers").meta.grade,
+        Grade::Likely
+    );
+    let j = join_of(&full, "orders", "customers");
+    assert_eq!(j.meta.grade, Grade::Possible);
+    assert_eq!(j.meta.evidence.orphans, 0);
+    assert_eq!(
+        j.meta.warning.as_deref(),
+        Some("on the full data, 1 value of customers.customer_id is held by more than one row")
+    );
+    assert_eq!(
+        dataset_of(&full, "customers")
+            .meta
+            .role_evidence
+            .last()
+            .map(String::as_str),
+        Some("customer_id repeats in 2 rows of the full table")
+    );
+}
+
+#[test]
+fn an_empty_key_is_dropped() {
+    let broken = format!(
+        "{CLEAN}
+        INSERT INTO customers VALUES (NULL, 'nobody');"
+    );
+    let (sample, full) = sample_then_full(CLEAN, &broken, &["customers", "orders"]);
+    assert_eq!(
+        dataset_of(&sample, "customers").primary_key,
+        ["customer_id"]
+    );
+    let c = dataset_of(&full, "customers");
+    assert!(c.primary_key.is_empty(), "{:?}", c.primary_key);
+    assert_eq!(
+        c.meta.role_evidence.last().map(String::as_str),
+        Some("customer_id is empty in 1 row of the full table")
+    );
+    // A NULL key points at nothing, so the join holds.
+    let j = join_of(&full, "orders", "customers");
+    assert_eq!(j.meta.grade, Grade::Likely);
+    assert_eq!(j.meta.warning, None);
+}
+
+#[test]
+fn an_unchecked_dataset_says_why() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_db_from(dir.path(), CLEAN);
+    let mut proposal = sample_proposal(&db);
+    // A combined dataset whose query names no table.
+    let mut combined = dataset_of(&proposal, "customers");
+    combined.name = "everyone".to_string();
+    combined.source = "SELECT * FROM \"raw_nowhere\"".to_string();
+    combined.meta.combination = Some(dovetail_core::ossie::Combination {
+        kind: "partition".to_string(),
+        parts: vec!["customers".to_string()],
+        token_column: String::new(),
+        extra: Default::default(),
+    });
+    proposal.datasets.push(combined);
+    let s = Session::over(
+        &db,
+        &[plain("customers"), plain("orders")],
+        None,
+        SessionTyping::Packages,
+    )
+    .unwrap();
+    let full = verify_full(proposal, &s);
+    let why = dataset_of(&full, "everyone")
+        .meta
+        .role_evidence
+        .last()
+        .cloned()
+        .unwrap();
+    assert!(
+        why.starts_with("not checked on the full data: its source does not run"),
+        "{why}"
+    );
 }
 
 /// What the analyst is looking at: every name, role, fold, combination and join, in
@@ -121,8 +261,11 @@ fn full_pass_rearranges_nothing() {
     assert_eq!(j.meta.evidence.child_rows, 22000);
     assert_eq!(j.meta.evidence.parent_duplicates, 1);
     let warning = j.meta.warning.expect("a warning");
-    assert!(warning.contains("2,000 of 22,000"), "{warning}");
-    assert!(warning.contains("customers"), "{warning}");
+    assert_eq!(
+        warning,
+        "on the full data, 2,000 of 22,000 rows of orders point at no row of customers; \
+         1 value of customers.customer_id is held by more than one row"
+    );
 
     let c = customers(&full).unwrap();
     assert!(c.primary_key.is_empty(), "{:?}", c.primary_key);
@@ -262,6 +405,75 @@ fn full_pass_on_stale_proposal_discovers() {
 }
 
 #[test]
+fn full_pass_on_removed_table_discovers() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_retail_db(dir.path());
+    let (mut stale, _) = retail_sample(dir.path(), &db);
+    // A dataset dovetail proposed for a file since removed.
+    let mut ghost = stale.datasets[0].clone();
+    ghost.name = "ghost".to_string();
+    ghost.source = "raw_ghost".to_string();
+    assert!(ghost.meta.combination.is_none());
+    stale.datasets.push(ghost);
+    let path = dir.path().join("stale.ossie.yaml");
+    std::fs::write(&path, write(&stale)).unwrap();
+    let (m, warnings) = run_model(&request(&db, Verified::Full, Some(path))).unwrap();
+    assert_discovered_on_full(&m);
+    assert!(!m.datasets.iter().any(|d| d.name == "ghost"));
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("ghost"), "{warnings:?}");
+}
+
+#[test]
+fn full_pass_on_missing_part_discovers() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_retail_db(dir.path());
+    let (mut stale, _) = retail_sample(dir.path(), &db);
+    let combined = stale
+        .datasets
+        .iter_mut()
+        .find(|d| d.name == "price_list")
+        .unwrap();
+    combined
+        .meta
+        .combination
+        .as_mut()
+        .unwrap()
+        .parts
+        .push("price_list_2023".to_string());
+    let path = dir.path().join("stale.ossie.yaml");
+    std::fs::write(&path, write(&stale)).unwrap();
+    let (m, warnings) = run_model(&request(&db, Verified::Full, Some(path))).unwrap();
+    assert_discovered_on_full(&m);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("price_list_2023"), "{warnings:?}");
+}
+
+#[test]
+fn full_pass_is_repeatable() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_retail_db(dir.path());
+    let (_, path) = retail_sample(dir.path(), &db);
+    let run = || {
+        write(
+            &run_model(&request(&db, Verified::Full, Some(path.clone())))
+                .unwrap()
+                .0,
+        )
+    };
+    let first = run();
+    assert_eq!(first, run(), "two full passes give the same bytes");
+    assert_eq!(read(&first).unwrap().meta.pass, Some(Verified::Full));
+}
+
+#[test]
+fn an_unmeasured_pass_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_retail_db(dir.path());
+    assert!(run_model(&request(&db, Verified::Unmeasured, None)).is_err());
+}
+
+#[test]
 fn full_pass_on_garbage_discovers() {
     let dir = tempfile::tempdir().unwrap();
     let db = build_raw_retail_db(dir.path());
@@ -287,4 +499,5 @@ fn sample_pass_says_sample() {
         .iter()
         .all(|r| r.meta.verified == Verified::Sample));
     assert_eq!(m.meta.pass, Some(Verified::Sample));
+    assert_eq!(m.meta.sample_rows, Some(SAMPLE_ROWS));
 }
