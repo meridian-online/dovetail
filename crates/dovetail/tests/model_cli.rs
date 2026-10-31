@@ -240,3 +240,46 @@ fn name_defaults_to_the_db_stem() {
     assert!(o.status.success(), "{}", stderr(&o));
     assert_eq!(read_model(&out).name, "retail");
 }
+
+#[test]
+fn out_naming_an_input_is_a_usage_error() {
+    let dir = tmp_dir("out-is-input");
+    let db = common::build_raw_retail_db(&dir);
+    let packages = common::retail_packages_dir();
+    let base = dir.join("base.ossie.yaml");
+    let o = model(
+        &db,
+        &[
+            "--packages",
+            packages.to_str().unwrap(),
+            "--pass",
+            "sample",
+            "--out",
+            base.to_str().unwrap(),
+        ],
+    );
+    assert!(o.status.success(), "{}", stderr(&o));
+    let before = std::fs::read(&base).unwrap();
+    let db_before = std::fs::read(&db).unwrap();
+
+    // The same file, spelled differently: a `..` detour and a path that is not there yet.
+    let detour = dir.join("sub/../base.ossie.yaml");
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    for (flag, other, out) in [
+        ("--base", &base, &base),
+        ("--base", &base, &detour),
+        ("--verify", &base, &base),
+        ("--db", &db, &db),
+    ] {
+        let mut extra = vec!["--pass", "full", "--out", out.to_str().unwrap()];
+        if flag != "--db" {
+            extra.extend([flag, other.to_str().unwrap()]);
+        }
+        let o = model(&db, &extra);
+        assert_eq!(o.status.code(), Some(2), "{flag}: {}", stderr(&o));
+        assert!(stderr(&o).starts_with("dovetail model: "), "{}", stderr(&o));
+        assert_eq!(std::fs::read(&base).unwrap(), before, "{flag}");
+        assert_eq!(std::fs::read(&db).unwrap(), db_before, "{flag}");
+        assert!(!dir.join("base.ossie.yaml.writing").exists());
+    }
+}

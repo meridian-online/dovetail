@@ -8,7 +8,7 @@
 //! and why, and prints the emitted standalone load. Under-confident
 //! detections route to suggest-and-confirm rather than emit blind.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use dovetail_core::emit::DuplicatePolicy;
@@ -424,6 +424,19 @@ fn run_model_cmd(args: Vec<String>) -> ExitCode {
         eprintln!("dovetail model: --verify applies to the full pass only; ignored");
         verify = None;
     }
+    for (flag, other) in [
+        ("--db", Some(db.as_path())),
+        ("--base", base.as_ref().map(Path::new)),
+        ("--verify", verify.as_ref().map(Path::new)),
+    ] {
+        if let Some(other) = other {
+            if same_path(&out, other) {
+                return usage(&format!(
+                    "--out is the same file as {flag}; name a different path"
+                ));
+            }
+        }
+    }
     let name = name.unwrap_or_else(|| {
         db.file_stem()
             .map_or_else(|| "model".to_owned(), |s| s.to_string_lossy().into_owned())
@@ -453,6 +466,17 @@ fn run_model_cmd(args: Vec<String>) -> ExitCode {
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
+}
+
+/// Whether two paths name the same file, by absolute path: canonical where the
+/// path exists, lexically absolute where it does not.
+fn same_path(a: &Path, b: &Path) -> bool {
+    let abs = |p: &Path| {
+        std::fs::canonicalize(p)
+            .or_else(|_| std::path::absolute(p))
+            .unwrap_or_else(|_| p.to_path_buf())
+    };
+    abs(a) == abs(b)
 }
 
 /// Write `text` to `<out>.writing` beside `out`, then rename it over `out`, so a
