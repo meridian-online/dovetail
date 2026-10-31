@@ -169,6 +169,12 @@ fn usable(path: &Path, tables: &[SourceTable], base: Option<&Model>) -> Result<M
             model.meta.generator
         ));
     }
+    if model.meta.pass != Some(Verified::Sample) {
+        return Err(format!(
+            "{} is not a sample pass's proposal, and a full pass's model is not verified again",
+            path.display()
+        ));
+    }
     let run: BTreeSet<&str> = tables.iter().map(|t| t.name.as_str()).collect();
     let plain: BTreeSet<&str> = model
         .datasets
@@ -199,6 +205,15 @@ fn usable(path: &Path, tables: &[SourceTable], base: Option<&Model>) -> Result<M
             }
             None => {}
         }
+    }
+    // The sample pass copied the base's rejections, so one the base no longer holds has
+    // been lifted since, and the join it hid was never proposed.
+    let rejected = base.map_or(&[][..], |b| b.meta.rejected.as_slice());
+    if let Some(r) = model.meta.rejected.iter().find(|r| !rejected.contains(r)) {
+        return Err(stale(format!(
+            "it rejects the join {}, which the current base no longer rejects as it was",
+            r.name
+        )));
     }
     let current = base.map(analyst_elements).unwrap_or_default();
     if let Some((what, _)) = analyst_elements(&model)

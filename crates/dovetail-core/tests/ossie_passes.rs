@@ -700,7 +700,7 @@ fn full_pass_discovers_afresh_when_the_analyst_has_undone_something() {
     let (full, warnings) = run_model(&request(&db, Verified::Full, Some(sample_path))).unwrap();
     assert!(!has_hand_made_join(&full));
     assert!(
-        warnings.iter().any(|w| w.contains("analyst")),
+        warnings.iter().any(|w| w.contains("out of date")),
         "{warnings:?}"
     );
 }
@@ -798,4 +798,63 @@ fn an_analyst_field_under_a_dataset_the_base_now_holds_whole_is_not_stale() {
         .fields
         .iter()
         .any(|f| f.name == "email" && f.meta.decided_by == DecidedBy::Analyst));
+}
+
+#[test]
+fn full_pass_discovers_afresh_when_a_rejection_was_lifted() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_retail_db(dir.path());
+    let (proposal, _) = retail_sample(dir.path(), &db);
+    let base = analyst_base(proposal);
+    assert_eq!(base.meta.rejected.len(), 1);
+    let rejected_name = base.meta.rejected[0].name.clone();
+    let base_path = dir.path().join("model.ossie.yaml");
+    std::fs::write(&base_path, write(&base)).unwrap();
+    let with_base = |pass, verify| ModelRequest {
+        base: Some(base_path.clone()),
+        ..request(&db, pass, verify)
+    };
+    let (sample, _) = run_model(&with_base(Verified::Sample, None)).unwrap();
+    assert!(sample.relationships.iter().all(|r| r.name != rejected_name));
+    let sample_path = dir.path().join("sample.ossie.yaml");
+    std::fs::write(&sample_path, write(&sample)).unwrap();
+
+    // Lifted since the sample: the join was never proposed, so the full pass finds it.
+    let mut lifted = base.clone();
+    lifted.meta.rejected.clear();
+    std::fs::write(&base_path, write(&lifted)).unwrap();
+    let (full, warnings) =
+        run_model(&with_base(Verified::Full, Some(sample_path.clone()))).unwrap();
+    assert!(full.relationships.iter().any(|r| r.name == rejected_name));
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("discovering afresh") && w.contains("rejects")),
+        "{warnings:?}"
+    );
+
+    // With no base, a proposal that holds a rejection is stale.
+    let (_, warnings) = run_model(&request(&db, Verified::Full, Some(sample_path))).unwrap();
+    assert!(
+        warnings.iter().any(|w| w.contains("rejects")),
+        "{warnings:?}"
+    );
+}
+
+#[test]
+fn full_pass_does_not_verify_a_full_pass_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_retail_db(dir.path());
+    let (first, _) = run_model(&request(&db, Verified::Full, None)).unwrap();
+    assert_eq!(first.meta.pass, Some(Verified::Full));
+    let path = dir.path().join("full.ossie.yaml");
+    std::fs::write(&path, write(&first)).unwrap();
+    let (again, warnings) = run_model(&request(&db, Verified::Full, Some(path))).unwrap();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("discovering afresh") && w.contains("not a sample")),
+        "{warnings:?}"
+    );
+    assert_eq!(layout(&again), layout(&first));
 }
