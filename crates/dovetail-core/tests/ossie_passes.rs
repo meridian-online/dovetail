@@ -650,3 +650,57 @@ fn full_pass_keeps_an_empty_source_file_empty() {
     }
     assert_eq!(layout(&full), layout(&sample));
 }
+
+#[test]
+fn full_pass_discovers_afresh_when_the_analyst_has_undone_something() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_retail_db(dir.path());
+    let (proposal, _) = retail_sample(dir.path(), &db);
+    let base = analyst_base(proposal);
+    let base_path = dir.path().join("model.ossie.yaml");
+    std::fs::write(&base_path, write(&base)).unwrap();
+    let with_base = |pass, verify| ModelRequest {
+        base: Some(base_path.clone()),
+        ..request(&db, pass, verify)
+    };
+    // Brightfield's sample pass runs with the base, so the proposal holds the analyst's hand.
+    let (sample, _) = run_model(&with_base(Verified::Sample, None)).unwrap();
+    let sample_path = dir.path().join("sample-with-base.ossie.yaml");
+    std::fs::write(&sample_path, write(&sample)).unwrap();
+    let has_hand_made_join = |m: &Model| {
+        m.relationships
+            .iter()
+            .any(|r| r.name == "member_visits_members")
+    };
+    assert!(has_hand_made_join(&sample));
+
+    // Unchanged: the proposal is verified, with no warning.
+    let (full, warnings) =
+        run_model(&with_base(Verified::Full, Some(sample_path.clone()))).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(has_hand_made_join(&full));
+
+    // The analyst deletes the hand-made join: it is gone, and the run says why.
+    let mut undone = base.clone();
+    undone
+        .relationships
+        .retain(|r| r.name != "member_visits_members");
+    std::fs::write(&base_path, write(&undone)).unwrap();
+    let (full, warnings) =
+        run_model(&with_base(Verified::Full, Some(sample_path.clone()))).unwrap();
+    assert!(!has_hand_made_join(&full));
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("discovering afresh") && w.contains("analyst")),
+        "{warnings:?}"
+    );
+
+    // With no base at all, a proposal holding the analyst's hand is stale too.
+    let (full, warnings) = run_model(&request(&db, Verified::Full, Some(sample_path))).unwrap();
+    assert!(!has_hand_made_join(&full));
+    assert!(
+        warnings.iter().any(|w| w.contains("analyst")),
+        "{warnings:?}"
+    );
+}

@@ -1,6 +1,6 @@
 //! `run_model`: one pass of `dovetail model`, from a database to an Ossie model.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use super::{
@@ -80,7 +80,10 @@ pub fn run_model(req: &ModelRequest) -> Result<(Model, Vec<String>), ModelError>
 
     let model = match req.pass {
         Verified::Full => {
-            let proposal = req.verify.as_deref().map(|path| usable(path, &tables));
+            let proposal = req
+                .verify
+                .as_deref()
+                .map(|path| usable(path, &tables, base.as_ref()));
             match proposal {
                 Some(Ok(proposal)) => {
                     // The proposal's own typing stands: the full pass types nothing,
@@ -152,7 +155,12 @@ fn discover(
 /// table is a dataset that is not a combination, every such dataset dovetail decided is
 /// a table, and every combination's parts are tables. An analyst's dataset with no
 /// table of its own is carried, not compared.
-fn usable(path: &Path, tables: &[SourceTable]) -> Result<Model, String> {
+///
+/// Every dataset, field or relationship in it that the analyst decided must be the
+/// current `base`'s, as written: the sample pass carries the analyst's elements into the
+/// proposal, and one the analyst has since deleted or changed would otherwise come back.
+/// With no `base`, any such element makes the proposal stale.
+fn usable(path: &Path, tables: &[SourceTable], base: Option<&Model>) -> Result<Model, String> {
     let model = read_model(path).map_err(|e| e.to_string())?;
     if !model.meta.generator.starts_with("dovetail ") {
         return Err(format!(
@@ -192,5 +200,43 @@ fn usable(path: &Path, tables: &[SourceTable]) -> Result<Model, String> {
             None => {}
         }
     }
+    let current = base.map(analyst_elements).unwrap_or_default();
+    if let Some((what, _)) = analyst_elements(&model)
+        .into_iter()
+        .find(|(what, held)| current.get(what) != Some(held))
+    {
+        return Err(stale(format!(
+            "its {what} was decided by the analyst and the current base does not hold it as it is"
+        )));
+    }
     Ok(model)
+}
+
+/// The elements of `model` the analyst decided, by identity (a dataset or field name, a
+/// join's endpoints and columns) and as written. A field of an analyst dataset is part of
+/// that dataset.
+fn analyst_elements(model: &Model) -> BTreeMap<String, String> {
+    let mut held = BTreeMap::new();
+    for d in &model.datasets {
+        if d.meta.decided_by == DecidedBy::Analyst {
+            held.insert(format!("dataset {}", d.name), format!("{d:?}"));
+            continue;
+        }
+        for f in &d.fields {
+            if f.meta.decided_by == DecidedBy::Analyst {
+                held.insert(format!("field {}.{}", d.name, f.name), format!("{f:?}"));
+            }
+        }
+    }
+    for r in &model.relationships {
+        if r.meta.decided_by == DecidedBy::Analyst {
+            let key = format!(
+                "join {}{:?} -> {}{:?}",
+                r.from, r.from_columns, r.to, r.to_columns
+            );
+            // The name is not part of a join's identity, but it is part of how it is written.
+            held.insert(key, format!("{r:?}"));
+        }
+    }
+    held
 }
