@@ -225,12 +225,15 @@ fn measure(
         column(&r.from, from, from_column)?,
         column(&r.to, to, to_column)?,
     ];
+    // Only `from` pointing at `to` is measured: the other way round would group the
+    // many side's whole column for nothing.
+    let reverse = |child: &str, parent: &str| child == r.to && parent == r.from;
     let measured = edge_evidence_with(
         session,
         &cols,
         &[from.dataset.clone(), to.dataset.clone()],
         Pass::Combined,
-        &|_, _| false,
+        &reverse,
         Vec::new(),
     )
     .map_err(|e| e.to_string())?;
