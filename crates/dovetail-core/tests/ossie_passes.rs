@@ -10,8 +10,8 @@ use common::*;
 use dovetail_core::evidence::{Session, SessionTyping, SAMPLE_ROWS};
 use dovetail_core::finetype_ext::TypingRequest;
 use dovetail_core::ossie::{
-    project, read, run_model, verify_full, write, Grade, Model, ModelRequest, Provenance, Role,
-    Verified,
+    project, read, run_model, verify_full, write, DecidedBy, Grade, Model, ModelRequest,
+    Provenance, Role, Verified,
 };
 use dovetail_core::packages::SourceTable;
 use dovetail_core::roles::run_session;
@@ -500,4 +500,116 @@ fn sample_pass_says_sample() {
         .all(|r| r.meta.verified == Verified::Sample));
     assert_eq!(m.meta.pass, Some(Verified::Sample));
     assert_eq!(m.meta.sample_rows, Some(SAMPLE_ROWS));
+}
+
+/// The retail sample proposal `m` with the analyst's hand on it: a dataset, a field and
+/// a join they decided, each with a note of theirs, and a proposed join they rejected.
+fn analyst_base(mut m: Model) -> Model {
+    let note = |text: &str| {
+        let mut extra = serde_json::Map::new();
+        extra.insert("note".to_string(), serde_json::json!(text));
+        extra
+    };
+    let stores = m.datasets.iter_mut().find(|d| d.name == "stores").unwrap();
+    stores.meta.decided_by = DecidedBy::Analyst;
+    stores.meta.role = Role::Reference;
+    stores.meta.extra = note("a lookup, not an entity");
+
+    let email = m
+        .datasets
+        .iter_mut()
+        .find(|d| d.name == "customers")
+        .unwrap()
+        .fields
+        .iter_mut()
+        .find(|f| f.name == "email")
+        .unwrap();
+    email.meta.decided_by = DecidedBy::Analyst;
+    email.meta.finetype = Some("identity.person.email".to_string());
+    email.meta.extra = note("personal data");
+
+    let at = m
+        .relationships
+        .iter()
+        .position(|r| r.name == "loyalty_visits_stores")
+        .unwrap();
+    let mut rejected = m.relationships.remove(at);
+    rejected.meta.decided_by = DecidedBy::Analyst;
+    m.meta.rejected = vec![rejected];
+
+    let mut added = m.relationships[0].clone();
+    added.name = "member_visits_members".to_string();
+    added.from = "member_visits".to_string();
+    added.from_columns = vec!["member_id".to_string()];
+    added.to = "members".to_string();
+    added.to_columns = vec!["member_id".to_string()];
+    added.meta.decided_by = DecidedBy::Analyst;
+    added.meta.verified = Verified::Unmeasured;
+    added.meta.extra = note("added by hand");
+    m.relationships.push(added);
+    m
+}
+
+/// The element of `doc`'s `list` named `name`, as the file holds it.
+fn element<'a>(doc: &'a serde_yaml::Value, list: &str, name: &str) -> &'a serde_yaml::Value {
+    doc[list]
+        .as_sequence()
+        .unwrap()
+        .iter()
+        .find(|e| e["name"].as_str() == Some(name))
+        .unwrap_or_else(|| panic!("no {list} {name}"))
+}
+
+#[test]
+fn both_passes_carry_the_analyst_through() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_retail_db(dir.path());
+    let (proposal, _) = retail_sample(dir.path(), &db);
+    let base_path = dir.path().join("model.ossie.yaml");
+    let base_text = write(&analyst_base(proposal));
+    std::fs::write(&base_path, &base_text).unwrap();
+    let held: serde_yaml::Value = serde_yaml::from_str(&base_text).unwrap();
+
+    let with_base = |pass, verify| ModelRequest {
+        base: Some(base_path.clone()),
+        ..request(&db, pass, verify)
+    };
+    let (sample, warnings) = run_model(&with_base(Verified::Sample, None)).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let sample_text = write(&sample);
+    let sample_path = dir.path().join("sample.ossie.yaml");
+    std::fs::write(&sample_path, &sample_text).unwrap();
+    let (full, warnings) =
+        run_model(&with_base(Verified::Full, Some(sample_path.clone()))).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(full.meta.pass, Some(Verified::Full));
+
+    let rejected = read(&base_text).unwrap().meta.rejected;
+    for (pass, text) in [("sample", sample_text), ("full", write(&full))] {
+        let out: serde_yaml::Value = serde_yaml::from_str(&text).unwrap();
+        assert_eq!(
+            element(&out, "datasets", "stores"),
+            element(&held, "datasets", "stores"),
+            "{pass}"
+        );
+        assert_eq!(
+            element(element(&out, "datasets", "customers"), "fields", "email"),
+            element(element(&held, "datasets", "customers"), "fields", "email"),
+            "{pass}"
+        );
+        assert_eq!(
+            element(&out, "relationships", "member_visits_members"),
+            element(&held, "relationships", "member_visits_members"),
+            "{pass}"
+        );
+        // The rejected join is not proposed again, and the rejection is kept.
+        let m = read(&text).unwrap();
+        assert!(
+            !m.relationships
+                .iter()
+                .any(|r| r.from == "loyalty_visits" && r.to == "stores"),
+            "{pass}"
+        );
+        assert_eq!(m.meta.rejected, rejected, "{pass}");
+    }
 }
