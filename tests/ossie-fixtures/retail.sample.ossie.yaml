@@ -634,4 +634,4 @@ relationships:
     data: '{"grade":"likely","evidence":{"value_overlap":1.0,"orphans":0,"child_rows":5000,"child_type":"representation.numeric.integer_number","parent_type":"representation.numeric.integer_number","types_agree":true,"name_similarity":0.9},"cardinality":"N:1","verified":"sample","decided_by":"dovetail"}'
 custom_extensions:
 - vendor_name: MERIDIAN
-  data: '{"generator":"dovetail VERSION","pass":"sample","typing":{"source":"packages"}}'
+  data: '{"generator":"dovetail VERSION","pass":"sample","typing":{"source":"packages"},"sample_rows":50000}'

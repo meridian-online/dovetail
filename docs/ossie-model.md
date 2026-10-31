@@ -140,6 +140,7 @@ Each decision, with its reason.
 - **The full pass verifies dovetail's own sample proposal, not the held model.** The held model is written by the caller, whose merge keeps its own `generator` and whose reader drops Meridian keys it does not know, so nothing in it says reliably which elements dovetail proposed. A stand-in model with every table unclear and no joins would otherwise be "verified" into a model with no joins at all. The analyst's decisions still come from `--base`.
 - **`--verify` with the sample pass is ignored with a warning**, since a sample pass proposes and has nothing to verify.
 - **`meta.rejected` and `meta.skipped_sources` are copied through.** The caller's merge takes `skipped_sources` from the proposal, so a proposal without them would erase the analyst's list of files it passed over.
+- **The goldens are built by `run_model`, one for each pass, and none for floor typing.** `retail.sample.ossie.yaml` is a real sample pass over the retail packages fixture, and `retail.full.ossie.yaml` the full pass verifying it, so the golden holds what the command writes rather than a model assembled by hand. A floor-typed golden would change with every FineType release, and Brightfield, which always passes `--packages`, never runs that path.
 - **The write is atomic**, through `<out>.writing` and a rename, so a reader never sees a half-written proposal.
 
 ## What Brightfield needs to change

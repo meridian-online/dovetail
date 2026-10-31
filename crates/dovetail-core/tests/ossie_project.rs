@@ -8,12 +8,11 @@ use std::path::Path;
 use common::*;
 use dovetail_core::evidence::{Session, SessionTyping};
 use dovetail_core::finetype_ext::TypingRequest;
-use dovetail_core::ossie::{project, read, write, Grade, Model, Provenance, Role, Verified};
+use dovetail_core::ossie::{project, write, Grade, Model, Provenance, Role, Verified};
 use dovetail_core::packages::{read_packages, SourceTable};
 use dovetail_core::roles::run_session;
 
 const SCHEMA: &str = include_str!("../../../vendor/ossie/ossie-schema.json");
-const GOLDEN: &str = "../../tests/ossie-fixtures/retail.sample.ossie.yaml";
 
 fn validate(yaml: &str) {
     let schema: serde_json::Value = serde_json::from_str(SCHEMA).unwrap();
@@ -286,32 +285,6 @@ fn empty_table_is_unclear_with_zero_rows() {
     assert_eq!(d.fields.len(), 2);
     assert_eq!(m.meta.typing.as_ref().unwrap().source, "floor");
     validate(&write(&m));
-}
-
-#[test]
-fn golden_matches() {
-    let dir = tempfile::tempdir().unwrap();
-    let (m, _) = retail(dir.path());
-    let yaml = write(&m);
-    validate(&yaml);
-    assert_eq!(read(&yaml).unwrap(), m);
-
-    let dir2 = tempfile::tempdir().unwrap();
-    let (again, _) = retail(dir2.path());
-    assert_eq!(write(&again), yaml, "project is deterministic");
-
-    // The golden names the generator without its version, so a release does not fail it.
-    let generator = format!("dovetail {}\"", env!("CARGO_PKG_VERSION"));
-    assert!(yaml.contains(&generator));
-    let yaml = yaml.replace(&generator, "dovetail VERSION\"");
-
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(GOLDEN);
-    if std::env::var_os("DOVETAIL_WRITE_OSSIE_GOLDEN").is_some() {
-        std::fs::write(&path, &yaml).unwrap();
-    }
-    let golden = std::fs::read_to_string(&path).expect("the golden exists");
-    assert_eq!(yaml, golden);
-    validate(&golden);
 }
 
 /// Run the roles over `tables` in the database at `db` and project them.
