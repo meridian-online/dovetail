@@ -477,25 +477,39 @@ fn run_model_cmd(args: Vec<String>) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Whether two paths name the same file, by absolute path with `.` and `..` resolved
-/// lexically, then canonical where the result exists.
+/// Whether two paths name the same file. A path that exists is canonicalised; one that
+/// does not has its longest existing ancestor canonicalised (so symlinks resolve as the
+/// filesystem does) and the rest appended with `.` and `..` collapsed.
 fn same_path(a: &Path, b: &Path) -> bool {
     use std::path::Component;
-    let abs = |p: &Path| {
+    let resolve = |p: &Path| {
         let full = std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
-        let mut lexical = PathBuf::new();
-        for c in full.components() {
+        let parts: Vec<Component> = full.components().collect();
+        // The longest prefix of components that exists, as the filesystem resolves it.
+        let (mut real, from) = (0..=parts.len())
+            .rev()
+            .find_map(|n| {
+                let prefix: PathBuf = parts[..n].iter().collect();
+                std::fs::canonicalize(&prefix).ok().map(|r| (r, n))
+            })
+            .unwrap_or_else(|| (full.clone(), parts.len()));
+        // What does not exist yet: `.` and `..` collapse lexically there.
+        let mut tail: Vec<&Component> = Vec::new();
+        for c in &parts[from..] {
             match c {
                 Component::CurDir => {}
                 Component::ParentDir => {
-                    lexical.pop();
+                    if tail.pop().is_none() {
+                        real.pop();
+                    }
                 }
-                other => lexical.push(other),
+                other => tail.push(other),
             }
         }
-        std::fs::canonicalize(&lexical).unwrap_or(lexical)
+        real.extend(tail);
+        real
     };
-    abs(a) == abs(b)
+    resolve(a) == resolve(b)
 }
 
 /// Write `text` to `<out>.writing` beside `out`, then rename it over `out`, so a

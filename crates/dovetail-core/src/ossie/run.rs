@@ -212,30 +212,51 @@ fn usable(path: &Path, tables: &[SourceTable], base: Option<&Model>) -> Result<M
     Ok(model)
 }
 
-/// The elements of `model` the analyst decided, by identity (a dataset or field name, a
-/// join's endpoints and columns) and as written. A field of an analyst dataset is part of
-/// that dataset.
-fn analyst_elements(model: &Model) -> BTreeMap<String, String> {
+/// What names an element: a dataset, a field of a dataset, or a join by its endpoints
+/// and columns.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Identity {
+    Dataset(String),
+    Field(String, String),
+    Join(String, Vec<String>, String, Vec<String>),
+}
+
+impl std::fmt::Display for Identity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Dataset(d) => write!(f, "dataset {d}"),
+            Self::Field(d, n) => write!(f, "field {n} of dataset {d}"),
+            Self::Join(from, fc, to, tc) => write!(f, "join {from}{fc:?} -> {to}{tc:?}"),
+        }
+    }
+}
+
+/// The elements of `model` the analyst decided, by identity and as written. A field of
+/// an analyst dataset is part of that dataset.
+fn analyst_elements(model: &Model) -> BTreeMap<Identity, String> {
     let mut held = BTreeMap::new();
     for d in &model.datasets {
         if d.meta.decided_by == DecidedBy::Analyst {
-            held.insert(format!("dataset {}", d.name), format!("{d:?}"));
+            held.insert(Identity::Dataset(d.name.clone()), format!("{d:?}"));
             continue;
         }
         for f in &d.fields {
             if f.meta.decided_by == DecidedBy::Analyst {
-                held.insert(format!("field {}.{}", d.name, f.name), format!("{f:?}"));
+                let id = Identity::Field(d.name.clone(), f.name.clone());
+                held.insert(id, format!("{f:?}"));
             }
         }
     }
     for r in &model.relationships {
         if r.meta.decided_by == DecidedBy::Analyst {
-            let key = format!(
-                "join {}{:?} -> {}{:?}",
-                r.from, r.from_columns, r.to, r.to_columns
+            let id = Identity::Join(
+                r.from.clone(),
+                r.from_columns.clone(),
+                r.to.clone(),
+                r.to_columns.clone(),
             );
             // The name is not part of a join's identity, but it is part of how it is written.
-            held.insert(key, format!("{r:?}"));
+            held.insert(id, format!("{r:?}"));
         }
     }
     held

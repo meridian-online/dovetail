@@ -329,3 +329,47 @@ fn out_is_compared_after_resolving_dots_and_by_its_temporary_file() {
     assert_eq!(std::fs::read_to_string(&writing).unwrap(), "keep me too");
     assert!(!dir.join("missing").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn out_is_resolved_through_a_symlinked_directory() {
+    let dir = tmp_dir("out-symlink");
+    let db = common::build_raw_retail_db(&dir);
+    let real = dir.join("real/inner");
+    std::fs::create_dir_all(&real).unwrap();
+    let base = dir.join("real/base.ossie.yaml");
+    std::fs::write(&base, "keep me").unwrap();
+    // `work` points at `real/inner`, so `work/..` is `real`, not `dir`.
+    std::os::unix::fs::symlink(&real, dir.join("work")).unwrap();
+
+    let through_link = dir.join("work/../base.ossie.yaml");
+    let o = model(
+        &db,
+        &[
+            "--pass",
+            "full",
+            "--base",
+            base.to_str().unwrap(),
+            "--out",
+            through_link.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(o.status.code(), Some(2), "{}", stderr(&o));
+    assert_eq!(std::fs::read_to_string(&base).unwrap(), "keep me");
+
+    // The same text with a link that does not change what `..` means is not a clash:
+    // `dir/base.ossie.yaml` is a different file from `dir/real/base.ossie.yaml`.
+    let other = dir.join("base.ossie.yaml");
+    let o = model(
+        &db,
+        &[
+            "--pass",
+            "sample",
+            "--base",
+            base.to_str().unwrap(),
+            "--out",
+            other.to_str().unwrap(),
+        ],
+    );
+    assert_ne!(o.status.code(), Some(2), "{}", stderr(&o));
+}
