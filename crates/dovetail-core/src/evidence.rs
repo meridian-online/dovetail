@@ -1053,7 +1053,10 @@ struct ParentKey {
 /// `parent`'s non-null rows, distinct values and duplicated values (values
 /// held by more than one row). From `full` when the table was sampled; else
 /// the rows and distinct values are `parent`'s own and only the duplicates are
-/// counted, and not at all when every non-null row is distinct.
+/// counted, and not at all when every non-null row is distinct. A parent that
+/// already repeats in its sample is still counted in full: its share of
+/// distinct values is part of a join's confidence, and its duplicates are
+/// written into the model.
 fn parent_key(
     conn: &Connection,
     relation: &str,
@@ -1155,7 +1158,9 @@ fn column_ref(c: &ColumnEvidence) -> ColumnRef {
 /// For each of `parents` (a relation and a column), in order: how many
 /// distinct non-null values of the child column it holds, and how many
 /// non-null child rows it does not. One statement: the child's values are
-/// grouped once and each parent is an arm of a `UNION ALL`.
+/// grouped once and each parent is an arm of a `UNION ALL`. Each arm probes
+/// the parent column with the child's values, which a sample keeps few, so
+/// a parent read in full is scanned once rather than hashed whole.
 pub(crate) fn overlap_sql(
     child_relation: &str,
     child_column: &str,
@@ -1170,7 +1175,8 @@ pub(crate) fn overlap_sql(
             format!(
                 "SELECT {i} AS i, count(*) FILTER (WHERE hit),
                         CAST(coalesce(sum(n) FILTER (WHERE NOT hit), 0) AS BIGINT)
-                 FROM (SELECT n, v IN (SELECT {pc} FROM {relation} WHERE {pc} IS NOT NULL) AS hit
+                 FROM (SELECT n, v IN (SELECT {pc} FROM {relation}
+                                       WHERE {pc} IN (SELECT v FROM __dovetail_child_values)) AS hit
                        FROM __dovetail_child_values)"
             )
         })
