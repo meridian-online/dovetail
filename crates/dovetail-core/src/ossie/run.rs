@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use super::carry::{join_key, JoinKey};
 use super::{
     carry, project, read, verify_full, DecidedBy, Model, OssieError, Provenance, Verified,
 };
@@ -208,10 +209,21 @@ fn usable(path: &Path, tables: &[SourceTable], base: Option<&Model>) -> Result<M
     }
     // The sample pass copied the base's rejections, so one the base no longer holds has
     // been lifted since, and the join it hid was never proposed.
-    let rejected = base.map_or(&[][..], |b| b.meta.rejected.as_slice());
-    if let Some(r) = model.meta.rejected.iter().find(|r| !rejected.contains(r)) {
+    // Rejections are matched by the join's key: the floats and the name in an entry are
+    // evidence, not identity.
+    let rejected: BTreeSet<JoinKey<'_>> = base
+        .map_or(&[][..], |b| b.meta.rejected.as_slice())
+        .iter()
+        .map(join_key)
+        .collect();
+    if let Some(r) = model
+        .meta
+        .rejected
+        .iter()
+        .find(|r| !rejected.contains(&join_key(r)))
+    {
         return Err(stale(format!(
-            "it rejects the join {}, which the current base no longer rejects as it was",
+            "it rejects the join {}, which the current base no longer rejects",
             r.name
         )));
     }

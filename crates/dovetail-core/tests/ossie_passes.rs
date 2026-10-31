@@ -703,6 +703,46 @@ fn full_pass_discovers_afresh_when_the_analyst_has_undone_something() {
         warnings.iter().any(|w| w.contains("out of date")),
         "{warnings:?}"
     );
+
+}
+
+#[test]
+fn full_pass_verifies_a_proposal_whose_base_carries_awkward_floats() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_retail_db(dir.path());
+    let (proposal, _) = retail_sample(dir.path(), &db);
+    let mut base = analyst_base(proposal);
+    // Floats that a parser without exact round-tripping can read one ULP off.
+    let analyst = base
+        .relationships
+        .iter_mut()
+        .find(|r| r.name == "member_visits_members")
+        .unwrap();
+    analyst.meta.evidence.value_overlap = 0.999_999_999_999_999_9;
+    analyst.meta.evidence.name_similarity = 0.123_456_789_012_345_67;
+    base.meta.rejected[0].meta.evidence.value_overlap = 0.300_000_000_000_000_04;
+    base.meta.rejected[0].meta.evidence.name_similarity = 0.123_456_789_012_345_67;
+    let base_path = dir.path().join("model.ossie.yaml");
+    let base_text = write(&base);
+    std::fs::write(&base_path, &base_text).unwrap();
+    let with_base = |pass, verify| ModelRequest {
+        base: Some(base_path.clone()),
+        ..request(&db, pass, verify)
+    };
+
+    let (sample, warnings) = run_model(&with_base(Verified::Sample, None)).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let sample_path = dir.path().join("sample-with-base.ossie.yaml");
+    std::fs::write(&sample_path, write(&sample)).unwrap();
+
+    let (full, warnings) = run_model(&with_base(Verified::Full, Some(sample_path))).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let held: serde_yaml::Value = serde_yaml::from_str(&base_text).unwrap();
+    let out: serde_yaml::Value = serde_yaml::from_str(&write(&full)).unwrap();
+    assert_eq!(
+        element(&out, "relationships", "member_visits_members"),
+        element(&held, "relationships", "member_visits_members")
+    );
 }
 
 /// Two 600-row tables, the second with one row changed.

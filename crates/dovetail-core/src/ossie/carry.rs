@@ -11,9 +11,9 @@ use super::project::claim_name;
 use super::{DecidedBy, Model, Relationship};
 
 /// A relationship's identity: the name is not part of it.
-type JoinKey<'a> = (&'a str, &'a [String], &'a str, &'a [String]);
+pub(super) type JoinKey<'a> = (&'a str, &'a [String], &'a str, &'a [String]);
 
-fn join_key(r: &Relationship) -> JoinKey<'_> {
+pub(super) fn join_key(r: &Relationship) -> JoinKey<'_> {
     (&r.from, &r.from_columns, &r.to, &r.to_columns)
 }
 
