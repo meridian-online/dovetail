@@ -388,8 +388,13 @@ fn classify(
         Some(full) => format!("SELECT {list} FROM {full}"),
         None => select(part),
     };
+    // Parts with different row counts cannot be duplicates, so the comparison is skipped.
+    let same_size = |p: &String| s.sampled().is_none() || s.full_rows(&parts[0]) == s.full_rows(p);
     let duplicate = parts[1..].iter().try_fold(true, |all, p| {
-        Ok::<bool, EvidenceError>(all && identical(s, &judged(&parts[0]), &judged(p))?)
+        if !all || !same_size(p) {
+            return Ok(false);
+        }
+        identical(s, &judged(&parts[0]), &judged(p))
     })?;
     let floor = matches!(s.typing, TypingSource::Floor { .. });
     let key = measure_table(s.conn(), cols, &[], &[], &Dataset::source(&parts[0]), floor)?.key;

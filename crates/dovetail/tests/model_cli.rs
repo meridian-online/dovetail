@@ -376,4 +376,44 @@ fn out_is_resolved_through_a_symlinked_directory() {
     assert_ne!(o.status.code(), Some(2), "{}", stderr(&o));
     assert!(!stderr(&o).contains("same file"), "{}", stderr(&o));
     assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), "not a model");
+
+    // A symlink followed by `..` and a last component that does not exist yet: the
+    // temporary file of `--out work/../fresh.ossie.yaml` is `real/fresh.ossie.yaml.writing`.
+    let fresh = dir.join("work/../fresh.ossie.yaml");
+    let writing = dir.join("real/fresh.ossie.yaml.writing");
+    std::fs::write(&writing, "keep me too").unwrap();
+    assert!(!dir.join("real/fresh.ossie.yaml").exists());
+    let o = model(
+        &db,
+        &[
+            "--pass",
+            "full",
+            "--base",
+            writing.to_str().unwrap(),
+            "--out",
+            fresh.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(o.status.code(), Some(2), "{}", stderr(&o));
+    assert!(stderr(&o).contains(".writing"), "{}", stderr(&o));
+    assert_eq!(std::fs::read_to_string(&writing).unwrap(), "keep me too");
+    assert!(!dir.join("real/fresh.ossie.yaml").exists());
+
+    // The reverse: `dir/fresh.ossie.yaml.writing` is a different file from
+    // `real/fresh.ossie.yaml.writing`, so naming it as the base is not a clash.
+    let beside = dir.join("fresh.ossie.yaml.writing");
+    std::fs::write(&beside, "not a model").unwrap();
+    let o = model(
+        &db,
+        &[
+            "--pass",
+            "sample",
+            "--base",
+            beside.to_str().unwrap(),
+            "--out",
+            fresh.to_str().unwrap(),
+        ],
+    );
+    assert_ne!(o.status.code(), Some(2), "{}", stderr(&o));
+    assert!(!stderr(&o).contains("same file"), "{}", stderr(&o));
 }
