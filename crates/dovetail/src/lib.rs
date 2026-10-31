@@ -420,6 +420,10 @@ fn run_model_cmd(args: Vec<String>) -> ExitCode {
         Some(other) => return usage(&format!("--pass is sample or full, not {other:?}")),
         None => return usage("--pass is required"),
     };
+    if verify.is_some() && pass == Verified::Sample {
+        eprintln!("dovetail model: --verify applies to the full pass only; ignored");
+        verify = None;
+    }
     let name = name.unwrap_or_else(|| {
         db.file_stem()
             .map_or_else(|| "model".to_owned(), |s| s.to_string_lossy().into_owned())

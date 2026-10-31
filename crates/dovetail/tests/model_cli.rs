@@ -11,7 +11,7 @@ use std::process::{Command, Output};
 use dovetail_core::ossie;
 
 fn tmp_dir(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("dovetail-cli-model-{tag}"));
+    let dir = std::env::temp_dir().join(format!("dovetail-cli-model-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -162,4 +162,81 @@ fn base_is_never_written() {
     assert!(o.status.success(), "{}", stderr(&o));
     assert_eq!(std::fs::read(&first).unwrap(), before);
     assert!(again.exists());
+}
+
+#[test]
+fn verify_with_the_sample_pass_warns_and_is_ignored() {
+    let dir = tmp_dir("verify-sample");
+    let db = common::build_raw_retail_db(&dir);
+    let packages = common::retail_packages_dir();
+    let out = dir.join("m.ossie.yaml");
+    let o = model(
+        &db,
+        &[
+            "--packages",
+            packages.to_str().unwrap(),
+            "--pass",
+            "sample",
+            "--verify",
+            dir.join("absent.yaml").to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ],
+    );
+    assert!(o.status.success(), "{}", stderr(&o));
+    assert!(
+        stderr(&o).contains("dovetail model: --verify applies to the full pass only; ignored"),
+        "{}",
+        stderr(&o)
+    );
+    assert!(out.exists());
+}
+
+#[test]
+fn model_help_exits_0_and_names_every_flag() {
+    let o = dovetail(&["--help".as_ref()]);
+    assert!(o.status.success());
+    let text = String::from_utf8_lossy(&o.stdout);
+    for flag in [
+        "--db",
+        "--pass",
+        "--out",
+        "--packages",
+        "--base",
+        "--verify",
+        "--name",
+    ] {
+        assert!(text.contains(flag), "help lacks {flag}: {text}");
+    }
+}
+
+#[test]
+fn top_level_help_lists_model() {
+    let o = Command::new(env!("CARGO_BIN_EXE_dovetail"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(o.status.success());
+    assert!(String::from_utf8_lossy(&o.stdout).contains("model --db"));
+}
+
+#[test]
+fn name_defaults_to_the_db_stem() {
+    let dir = tmp_dir("name");
+    let db = common::build_raw_retail_db(&dir);
+    let packages = common::retail_packages_dir();
+    let out = dir.join("m.ossie.yaml");
+    let o = model(
+        &db,
+        &[
+            "--packages",
+            packages.to_str().unwrap(),
+            "--pass",
+            "sample",
+            "--out",
+            out.to_str().unwrap(),
+        ],
+    );
+    assert!(o.status.success(), "{}", stderr(&o));
+    assert_eq!(read_model(&out).name, "retail");
 }

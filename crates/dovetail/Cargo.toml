@@ -27,5 +27,6 @@ anyhow = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-# The model tests build the retail fixture into a DuckDB file.
+# The model tests build the retail fixture into a DuckDB file. Keep this spec
+# in step with the pin in dovetail-core, or two libduckdb builds get linked.
 duckdb = { version = "=1.20000.0", features = ["bundled"] }
