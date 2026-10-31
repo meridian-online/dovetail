@@ -16,7 +16,7 @@ dovetail model --db <duckdb> --pass sample|full --out <file>
 
 - `--db`: the DuckDB holding the tables, attached read-only as everywhere else.
 - `--pass`: `sample` or `full`.
-- `--out`: where the proposal goes. dovetail writes `<out>.writing` beside it and renames it into place, so a reader finds the old file or the new one and never part of either; a run killed mid-write leaves no `--out` at all.
+- `--out`: where the proposal goes. dovetail writes `<out>.writing` beside it and renames it into place, so a reader sees the old file or the new one, never part of either. A write that fails removes `<out>.writing`; a run killed while writing can leave a stale `<out>.writing` beside an untouched `--out`, and the next run overwrites it.
 - `--packages`: a directory of data packages (`<dir>/*/datapackage.json`). When given, the packages name the datasets and type the fields.
 - `--base`: the model the caller holds. Both passes carry its analyst decisions through; nothing else is read from it.
 - `--verify`: for the full pass, the sample pass's own proposal, which it verifies. With the sample pass it is ignored, with a warning.
@@ -73,7 +73,7 @@ dovetail writes every key Brightfield's `brightfield-ossie` crate defines, with 
 - `name_similarity` is `relate`'s. `parent_duplicates` counts parent key values held by more than one row, as Brightfield's own measuring does.
 - The name is `<from>_<to>`; when one pair has more than one join, each takes `_<from column>` after it.
 
-**Model**: Brightfield's `ModelMeta` (`generator`, `rejected`, `skipped_sources`) plus, *new*, the provenance every artifact carries: `pass`, `typing` (the source, and the FineType tag and model hash when profiled), `sample_rows`, and the dovetail version. `generator` is `dovetail <version>`.
+**Model**: Brightfield's `ModelMeta` (`generator`, `rejected`, `skipped_sources`) plus, *new*, the provenance every artifact carries: `pass`, `typing` (the source, and the FineType tag and model hash when profiled) and `sample_rows`. The dovetail version is inside `generator`, which is `dovetail <version>`. `sample_rows` is the sample size the roles were scored on: `50000` from the sample pass, kept by a full pass that verifies that sample, since the roles it carries were scored there, and absent when the full pass discovers afresh on every row.
 
 ## Combinations and folds
 
@@ -87,7 +87,7 @@ Brightfield does not yet read combinations or the fold column; see *What Brightf
 
 The sample is at most `SAMPLE_ROWS` = 50,000 rows of each table, drawn with DuckDB's reservoir sample at a fixed seed on one thread, so the same table always gives the same sample. A table at or under that size is read whole. Everything the pass writes says `verified: sample`.
 
-A sample cannot answer a question about a parent's whole key. A child sampled against a sampled parent finds most of its keys missing, and every join looks orphaned. So the pass samples what is read row by row (column evidence, combinations, the child side of every candidate join) and measures against the full table anything about a key as a whole: a parent's distinct key set for overlap and orphans, a parent's uniqueness, and each table's row count. Those are single aggregates DuckDB answers quickly. The pass runs in an in-memory database holding the sampled copies as `src`, with the analyst's database attached read-only beside it for those full-table measurements.
+A sample cannot answer a question about a parent's whole key. A child sampled against a sampled parent finds most of its keys missing, and every join looks orphaned. So the pass samples what is read row by row (column evidence, combinations, the child side of every candidate join) and measures against the full table anything about a key as a whole: a parent's distinct key set for overlap and orphans, a parent's uniqueness, and each table's row count. A combined parent is read through a second view of its query over its parts' full tables. Those are single aggregates DuckDB answers quickly; overlap probes the full parent column with the child's sampled values, so the parent is scanned once rather than hashed whole. The pass runs in an in-memory database holding the sampled copies as `src`, with the analyst's database attached read-only beside it for those full-table measurements.
 
 A table's own key is still found on its sample, where a key can look unique and not be. The full pass checks it.
 
@@ -100,7 +100,7 @@ The full pass verifies the sample pass's proposal, read from `--verify`, and wri
 
 It changes nothing else: roles, folds, combinations, fields, every analyst-decided element, every `excluded` flag, `rejected`, `skipped_sources`, and any keys dovetail does not know. The role is not re-scored, and no relationship appears or disappears.
 
-A join the full data no longer bears out stays in the model, graded `possible`, with a `warning` naming each cause ("12 of 4,812 child rows point at no customer"). The full pass re-measures cardinality too, and any join whose grade falls carries a warning naming each cause. A dataset check that fails says so in its evidence.
+A join the full data no longer bears out stays in the model, graded `possible`, with a `warning` naming each cause ("on the full data, 12 of 4,812 rows of orders point at no row of customers"). The full pass re-measures cardinality too, and any join whose grade falls carries a warning naming each cause. A dataset check that fails says so in its evidence.
 
 It verifies dovetail's own sample proposal, not the caller's held model, and **discovers afresh** on every row, with `verified: full`, when there is nothing current to verify: no `--verify`, a proposal that cannot be read or was not written by dovetail (`generator` not `dovetail ...`), or one whose datasets are not the run's datasets. That also serves an analyst running dovetail directly.
 
@@ -120,7 +120,7 @@ Each decision, with its reason.
 
 - **dovetail owns its Ossie types.** The wire types live in `dovetail-core`, checked against the vendored schema and a golden file. Depending on Brightfield's crate would make a cycle between the two repos, and a shared crate is worth building once a third reader of Ossie models appears. The cost is two copies of the shapes, which Brightfield's own test of dovetail's output catches if they drift.
 - **Paths are explicit.** dovetail does not derive anything from a project folder or learn Brightfield's layout; the caller resolves its database and passes each path. The same command then serves an analyst running dovetail on any DuckDB.
-- **A field a package does not label is untyped, never floor-typed.** The caller leaves a label out when the column's own data contradicts it, and a floor label there would disagree with the profile the analyst has already seen. This holds for a column added after the session is built, such as a combined view's.
+- **A field a package does not label is untyped, never floor-typed.** The caller leaves a label out when the column's own data contradicts it, and a floor label there would disagree with the profile the analyst has already seen. A combined dataset's columns take their parts' package labels. Its token column, which no package describes, is labelled by the combination from the token's own type: a year (`INTEGER`) is `datetime.component.year` and a date `datetime.date.iso`. That label is what the combination knows, not a floor guess; the token column has no `datatype`, since no package gives it a type.
 - **`datatype` is written only for a typed field.** An untyped field claiming a datatype would be a guess. For `number`, the DuckDB type decides between `Decimal` and `Float`, because the package's type covers `DECIMAL`, `FLOAT` and `DOUBLE` alike.
 - **Lineage columns are dropped before measuring.** `__source_row` is unique and dense in every table and would otherwise be found as every table's key.
 - **Two package resources whose names collide are refused, naming both files.** DuckDB treats names case-insensitively, so the collision would otherwise land two datasets on one table.
@@ -155,11 +155,13 @@ The hand-off contract. Brightfield's side, not done here:
 
 ## Tests
 
-- A golden model: the retail role fixture, as a `--packages` run with a packages fixture typed from its answer key's columns, checked in and validated against the vendored schema, for both passes and both typings.
-- Brightfield's shapes: the golden is read through dovetail's own reader and every Meridian key Brightfield's crate defines is checked present with its type.
-- The analyst wins: a base with analyst-decided elements, an excluded dataset, a rejected join and skipped sources comes back byte-identical in those elements from both passes, and the rejected join is not proposed.
-- The full pass rearranges nothing: a fixture whose sample finds a join and a key that the full data breaks writes the same datasets and relationships in the same order, with the join `possible` and warned and the key dropped with its sentence.
-- The full pass discovers afresh with no `--verify`, with a proposal not written by dovetail, and with one whose datasets differ from the run's.
-- The sample is byte-identical on two runs, and a parent larger than `SAMPLE_ROWS` still scores its join accepted.
-- Atomic write: `--out` never exists in a partial state.
-- All of it runs under `cargo test -p dovetail-core --no-default-features`.
+The model's tests are in `crates/dovetail-core/tests/` and `crates/dovetail/tests/`. `cargo test -p dovetail-core --no-default-features` and `cargo test -p dovetail --no-default-features` run them without the candle classifier; CI runs the whole workspace both with default features and without.
+
+- `ossie_golden.rs`: the two goldens, `tests/ossie-fixtures/retail.sample.ossie.yaml` (a sample pass over the retail fixture with its packages) and `retail.full.ossie.yaml` (the full pass verifying that sample), each built by `run_model`, read back unchanged and validated against the vendored schema. A second test walks the JSON in each `MERIDIAN` `data` string of both goldens and checks every key Brightfield's crate defines: a key Brightfield requires is on every element with its JSON type and enum values, an optional key has its type wherever it is written, and the optional keys the retail goldens never write (`rejected`, `skipped_sources`, `source_part`, `parent_duplicates`, `warning`) are listed, so a change that starts writing one says so.
+- `ossie_wire.rs`: Brightfield's own fixture reads and validates; write then read is the identity; unknown keys survive; keys are written in the wire order.
+- `ossie_session.rs`: packages name and type the datasets, lineage columns are never measured, an unlabelled field is untyped, colliding resources are refused, and the sample is a repeatable copy with the full data still readable.
+- `ossie_sample.rs`: a sampled session (samples of 50 to 500 rows) measures a parent's whole key and every row count on the full data, a combination parent through its parts' full tables, so its joins are accepted with no orphans; duplicates are counted; the sample repeats.
+- `ossie_project.rs`: the projection over the retail fixture: datasets, combinations with their parts and a `source` that runs, time fields, datatypes, quoting, unique relationship names.
+- `ossie_carry.rs`: `carry` over the sample golden: analyst elements byte-identical, the rejected join not proposed, `excluded`, `rejected` and `skipped_sources` carried.
+- `ossie_passes.rs`: the full pass rearranges nothing, re-measures cardinality, warns on a repeated parent key and drops an empty key; it discovers afresh with no `--verify`, a stand-in, a stale proposal, one naming a removed table or a missing part, and an unreadable file; both passes are byte-identical run to run; and both passes, given a `--base` holding an analyst's dataset, field and join and a rejected join, write the analyst's elements byte-identical and leave the rejected join out.
+- `crates/dovetail/tests/model_cli.rs`: the command: a sample then full pass, usage errors exit `2`, a missing database exits `1` and leaves neither `--out` nor `<out>.writing`, `--base` is never written, `--verify` with the sample pass warns and is ignored, the help names every flag, and `--name` defaults to the database's stem.
