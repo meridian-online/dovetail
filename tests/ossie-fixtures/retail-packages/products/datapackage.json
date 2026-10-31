@@ -1,0 +1,38 @@
+{
+  "name": "products",
+  "resources": [
+    {
+      "name": "products",
+      "path": "../../source/products.csv",
+      "format": "csv",
+      "schema": {
+        "fields": [
+          {
+            "name": "sku",
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "x-finetype-label": "representation.text.word"
+          },
+          {
+            "name": "category_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "unit_price",
+            "type": "number",
+            "x-finetype-label": "finance.currency.amount"
+          },
+          {
+            "name": "supplier_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          }
+        ]
+      }
+    }
+  ]
+}

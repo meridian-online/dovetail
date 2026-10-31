@@ -1,0 +1,23 @@
+{
+  "name": "price_list_2025",
+  "resources": [
+    {
+      "name": "price_list_2025",
+      "path": "../../source/price_list_2025.csv",
+      "format": "csv",
+      "schema": {
+        "fields": [
+          {
+            "name": "sku",
+            "type": "string"
+          },
+          {
+            "name": "unit_price",
+            "type": "number",
+            "x-finetype-label": "finance.currency.amount"
+          }
+        ]
+      }
+    }
+  ]
+}

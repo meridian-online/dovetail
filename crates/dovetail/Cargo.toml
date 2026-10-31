@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[lib]
+name = "dovetail"
+path = "src/lib.rs"
+
 [[bin]]
 name = "dovetail"
 path = "src/main.rs"
@@ -21,3 +25,8 @@ finetype-guided = ["dovetail-core/finetype-guided"]
 dovetail-core = { path = "../dovetail-core", default-features = false }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+# The model tests build the retail fixture into a DuckDB file. Keep this spec
+# in step with the pin in dovetail-core, or two libduckdb builds get linked.
+duckdb = { version = "=1.20000.0", features = ["bundled"] }

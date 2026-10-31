@@ -1,0 +1,28 @@
+{
+  "name": "stores",
+  "resources": [
+    {
+      "name": "stores",
+      "path": "../../source/stores.csv",
+      "format": "csv",
+      "schema": {
+        "fields": [
+          {
+            "name": "store_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "city",
+            "type": "string",
+            "x-finetype-label": "geography.location.city"
+          },
+          {
+            "name": "region",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ]
+}

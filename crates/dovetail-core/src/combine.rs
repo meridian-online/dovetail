@@ -19,7 +19,7 @@ use crate::evidence::{
     self, column_evidence, edge_evidence, edge_evidence_with, list_columns, measure_counts,
     measure_table, parent_key_shaped, table_evidence_carrying, write_column_evidence,
     ColumnEvidence, Dataset, EdgeEvidence, EvidenceError, Pass, Relation, Session, SnapshotKey,
-    SESSION_PREFIX, VIEW_PREFIX,
+    FULL_VIEW_PREFIX, FULL_VIEW_SCHEMA, SESSION_PREFIX, VIEW_PREFIX,
 };
 use crate::finetype_ext::TypingSource;
 use crate::relate::{edge_from_evidence, needs_key_shape, quote, type_family, Edge, EdgeStatus};
@@ -55,6 +55,20 @@ pub struct Combination {
     /// The key found on the first part; empty when none is unique.
     pub key: Vec<String>,
     pub evidence: Vec<String>,
+}
+
+impl Combination {
+    /// [`Combination::source_sql`] with each part's table, `src.main."<part>"`, read
+    /// from the relation `relation(part)` names instead; `None` when it names none for
+    /// some part. The query lists its columns, so a relation with more columns, such as
+    /// a table with its lineage columns, gives the same columns.
+    pub fn source_over(&self, relation: impl Fn(&str) -> Option<String>) -> Option<String> {
+        let mut sql = self.source_sql.clone();
+        for p in &self.parts {
+            sql = sql.replace(&format!("{SESSION_PREFIX}{}", quote(p)), &relation(p)?);
+        }
+        Some(sql)
+    }
 }
 
 /// What a token is, which decides the token column's type and name.
@@ -368,8 +382,19 @@ fn classify(
         .join(", ");
     let select = |part: &str| format!("SELECT {list} FROM {SESSION_PREFIX}{}", quote(part));
 
+    // A sampled session's tables hold only the rows drawn, which two tables that differ
+    // elsewhere can share: the duplicate test reads the parts' full tables instead.
+    let judged = |part: &str| match s.sampled().and(s.full_relation(part)) {
+        Some(full) => format!("SELECT {list} FROM {full}"),
+        None => select(part),
+    };
+    // Parts with different row counts cannot be duplicates, so the comparison is skipped.
+    let same_size = |p: &String| s.sampled().is_none() || s.full_rows(&parts[0]) == s.full_rows(p);
     let duplicate = parts[1..].iter().try_fold(true, |all, p| {
-        Ok::<bool, EvidenceError>(all && identical(s, &select(&parts[0]), &select(p))?)
+        if !all || !same_size(p) {
+            return Ok(false);
+        }
+        identical(s, &judged(&parts[0]), &judged(p))
     })?;
     let floor = matches!(s.typing, TypingSource::Floor { .. });
     let key = measure_table(s.conn(), cols, &[], &[], &Dataset::source(&parts[0]), floor)?.key;
@@ -592,8 +617,8 @@ fn key_overlap(s: &Session, parts: &[String], key: &[String]) -> Result<f64, Evi
     })
 }
 
-/// Create a view in `memory.main` for each combination, named after it, and
-/// return what to measure: the views and every table of `src` that is not a
+/// Create a view in `memory.main` for each combination, named after it, and in a
+/// sampled session a second over its parts' full tables, and return what to measure: the views and every table of `src` that is not a
 /// part, sorted by name. A view whose name a kept table already has is an
 /// error, so it can never stand in for that table.
 pub fn create_views(s: &Session, combos: &[Combination]) -> Result<Vec<Dataset>, EvidenceError> {
@@ -623,7 +648,23 @@ pub fn create_views(s: &Session, combos: &[Combination]) -> Result<Vec<Dataset>,
             quote(&c.name),
             c.source_sql
         ))?;
+        // A sampled session's view holds sampled rows; this one, over the parts'
+        // full tables, is where a join to the combination reads its whole key.
+        if s.sampled().is_some() {
+            if let Some(sql) = c.source_over(|p| s.full_relation(p).map(str::to_string)) {
+                s.conn().execute_batch(&format!(
+                    "CREATE SCHEMA IF NOT EXISTS {FULL_VIEW_SCHEMA}; \
+                     CREATE OR REPLACE VIEW {FULL_VIEW_PREFIX}{} AS {sql}",
+                    quote(&c.name),
+                ))?;
+            }
+        }
         let mut d = Dataset::view(&c.name);
+        // The parts the view reads: a duplicate keeps only the first.
+        d.parts = match c.kind {
+            CombinationKind::Duplicate => c.parts.iter().take(1).cloned().collect(),
+            _ => c.parts.clone(),
+        };
         if c.kind == CombinationKind::Snapshot {
             if let Some(token) = &c.token_column {
                 d.snapshot = Some(SnapshotKey {

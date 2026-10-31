@@ -11,6 +11,16 @@ and date, then open a fresh `[Unreleased]` above it.
 
 ### Added
 
+- **`dovetail model`** — writes an Apache Ossie model across a DuckDB's tables:
+  datasets with keys and typed fields, relationships with their keys, and
+  Meridian's extension carrying each table's role, folds and combinations and
+  each join's grade and evidence. `--pass sample` proposes from a bounded
+  sample, measuring a parent's whole key on the full table; `--pass full`
+  re-measures on every row and rewrites only grades, evidence and measured
+  facts, weakening a join with a warning rather than removing it. `--packages`
+  types fields from FineType's data packages, `--base` carries an analyst's
+  decisions through byte for byte, and the `dovetail` crate gains a library
+  entry point, `cli_main`. See `docs/ossie-model.md`.
 - **Table roles** — `dovetail relate` calls each table an entity, event,
   reference, bridge, snapshot or unclear, with every role's score and the
   evidence behind the call; proposes folding a lookup into the one table that

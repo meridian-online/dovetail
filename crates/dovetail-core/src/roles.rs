@@ -144,7 +144,11 @@ pub struct TimeColumn {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableEvidence {
     pub name: String,
+    /// The table's rows: every one of them, even when the other measurements
+    /// were taken on a sample.
     pub rows: i64,
+    /// The rows the other measurements were taken on; `rows` unless sampled.
+    pub sample_rows: i64,
     pub columns: Vec<String>,
     /// The unique column or pair; empty when none is unique.
     pub key: Vec<String>,
@@ -321,12 +325,14 @@ pub fn score_table(
     let typing_str = match typing {
         TypingSource::Profiled { .. } => "profiled".to_string(),
         TypingSource::Floor { reason } => format!("floor: {reason}"),
+        TypingSource::Packages => "packages".to_string(),
     };
     let mut evidence = vec![match typing {
         TypingSource::Profiled {
             extension_version, ..
         } => format!("typing: profiled by {extension_version}"),
         TypingSource::Floor { reason } => format!("typing: floor ({reason})"),
+        TypingSource::Packages => "typing: packages (labels from the data packages)".to_string(),
     }];
     let audit_time_fields: Vec<String> = t
         .time_columns
@@ -408,7 +414,7 @@ pub fn score_table(
     };
     let varying_other_date = occurrence_times.iter().any(|c| {
         Some(c.name.as_str()) != snapshot_date.as_deref()
-            && c.distinct as f64 / rows as f64 > SNAPSHOT_MAX_DATE_RATIO
+            && c.distinct as f64 / t.sample_rows as f64 > SNAPSHOT_MAX_DATE_RATIO
     });
     let non_key_columns = t.columns.len().saturating_sub(t.key.len());
     // A self-reference only exempts a table from isolation; it earns nothing.
@@ -418,8 +424,14 @@ pub fn score_table(
         && t.self_references.is_empty();
 
     // --- Evidence -----------------------------------------------------------
+    // What the key and distinct counts were measured on.
+    let basis = if t.sample_rows < rows {
+        format!("in a sample of {} of {rows} rows", t.sample_rows)
+    } else {
+        format!("across {rows} rows")
+    };
     if has_key {
-        let mut s = format!("{} unique across {rows} rows", list(&t.key));
+        let mut s = format!("{} unique {basis}", list(&t.key));
         if !inbound.is_empty() {
             s.push_str(&format!("; pointed at by {}", list(&inbound)));
         }
@@ -431,9 +443,7 @@ pub fn score_table(
             evidence.push(format!("{} typed as an identifier", list(&t.key)));
         }
     } else {
-        evidence.push(format!(
-            "no column or pair of columns is unique across {rows} rows"
-        ));
+        evidence.push(format!("no column or pair of columns is unique {basis}"));
     }
     evidence.extend(pointers.iter().map(|p| p.sentence.clone()));
     evidence.extend(
@@ -491,7 +501,7 @@ pub fn score_table(
     }
     match &snapshot {
         Some(SnapshotSignal::DatedKey { date, distinct }) => evidence.push(format!(
-            "{} unique while {date} takes {distinct} distinct values across {rows} rows",
+            "{} unique while {date} takes {distinct} distinct values {basis}",
             list(&t.key)
         )),
         Some(SnapshotSignal::AsOf { date }) => evidence.push(format!(
@@ -642,8 +652,13 @@ fn pointers_out(t: &TableEvidence, edges: &[Edge], carried: &[CarriedKey]) -> Ve
     let mut out: Vec<(String, String, Pointer)> = Vec::new();
     for e in points_at(edges).filter(|e| e.child.table == t.name && e.parent.table != t.name) {
         let repeats = e.evidence.child_distinct < e.verification.child_total;
+        let basis = if t.sample_rows < t.rows {
+            "in a sample of"
+        } else {
+            "across"
+        };
         let mut sentence = format!(
-            "{} points at {}; {} distinct values across {} rows",
+            "{} points at {}; {} distinct values {basis} {} rows",
             e.child.column,
             e.parent.qualified(),
             e.evidence.child_distinct,
@@ -658,7 +673,7 @@ fn pointers_out(t: &TableEvidence, edges: &[Edge], carried: &[CarriedKey]) -> Ve
             Pointer {
                 column: e.child.column.clone(),
                 repeats,
-                parent_rows: Some(e.evidence.parent_total),
+                parent_rows: Some(e.evidence.parent_full_total),
                 sentence,
             },
         ));
@@ -698,7 +713,7 @@ fn snapshot_signal(t: &TableEvidence, pointer_columns: &BTreeSet<&str>) -> Optio
             if let Some(c) = t.time_columns.iter().find(|c| &c.name == k && !is_audit(c)) {
                 // A combination's token is its as-of time by construction.
                 let token = t.snapshot_token.as_deref() == Some(k.as_str());
-                let few = c.distinct as f64 / t.rows as f64 <= SNAPSHOT_MAX_DATE_RATIO + EPS;
+                let few = c.distinct as f64 / t.sample_rows as f64 <= SNAPSHOT_MAX_DATE_RATIO + EPS;
                 if token || few || dense_grid(t, k, c.distinct) {
                     return Some(SnapshotSignal::DatedKey {
                         date: c.name.clone(),
@@ -734,7 +749,7 @@ fn dense_grid(t: &TableEvidence, date: &str, date_distinct: i64) -> bool {
         return false;
     }
     let cells = others.iter().map(|d| *d as f64).product::<f64>() * date_distinct as f64;
-    t.rows as f64 + EPS >= SNAPSHOT_MIN_GRID_FILL * cells
+    t.sample_rows as f64 + EPS >= SNAPSHOT_MIN_GRID_FILL * cells
 }
 
 // --- The role model ------------------------------------------------------------
@@ -826,6 +841,7 @@ impl RoleModel {
                 extension_version, ..
             } => format!("typing: profiled by {extension_version}\n"),
             TypingSource::Floor { reason } => format!("typing: floor: {reason}\n"),
+            TypingSource::Packages => "typing: packages\n".to_string(),
         };
         let mut calls: Vec<&RoleCall> = self.tables.iter().collect();
         calls.sort_by(|a, b| (a.role, &a.table).cmp(&(b.role, &b.table)));
@@ -918,6 +934,7 @@ mod tests {
         TableEvidence {
             name: name.into(),
             rows,
+            sample_rows: rows,
             columns: strings(columns),
             key: strings(key),
             key_distinct: vec![],
@@ -973,6 +990,8 @@ mod tests {
                 child_distinct,
                 parent_distinct: parent_total,
                 parent_total,
+                parent_duplicates: 0,
+                parent_full_total: parent_total,
             },
             verification: Verification {
                 orphan_count: 0,
@@ -1037,6 +1056,25 @@ mod tests {
             ),
         ];
         (t, edges)
+    }
+
+    #[test]
+    fn a_sampled_key_says_what_it_was_measured_on() {
+        let (mut t, edges) = customers_with_inbound();
+        t.sample_rows = 100;
+        let call = score_table(&t, &edges, &[], &profiled());
+        assert!(
+            call.evidence.iter().any(|e| e
+                == "customer_id unique in a sample of 100 of 400 rows; \
+                    pointed at by loyalty_visits, transactions"),
+            "{:#?}",
+            call.evidence
+        );
+        assert!(
+            !call.evidence.iter().any(|e| e.contains("across 400 rows")),
+            "{:#?}",
+            call.evidence
+        );
     }
 
     #[test]

@@ -87,6 +87,9 @@ pub enum TypingSource {
     },
     /// The model-free floor typing, and why.
     Floor { reason: String },
+    /// Labels read from the data packages beside the database; a field with
+    /// none is untyped.
+    Packages,
 }
 
 /// Load FineType's extension into `conn` as `request` asks.

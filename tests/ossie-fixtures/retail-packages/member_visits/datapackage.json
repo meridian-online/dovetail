@@ -1,0 +1,28 @@
+{
+  "name": "member_visits",
+  "resources": [
+    {
+      "name": "member_visits",
+      "path": "../../source/member_visits.csv",
+      "format": "csv",
+      "schema": {
+        "fields": [
+          {
+            "name": "member_visit_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "member_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "visited_at",
+            "type": "datetime"
+          }
+        ]
+      }
+    }
+  ]
+}

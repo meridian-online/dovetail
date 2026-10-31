@@ -1,0 +1,24 @@
+{
+  "name": "categories",
+  "resources": [
+    {
+      "name": "categories",
+      "path": "../../source/categories.csv",
+      "format": "csv",
+      "schema": {
+        "fields": [
+          {
+            "name": "category_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "x-finetype-label": "representation.text.word"
+          }
+        ]
+      }
+    }
+  ]
+}

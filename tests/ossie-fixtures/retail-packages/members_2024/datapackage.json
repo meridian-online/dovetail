@@ -1,0 +1,23 @@
+{
+  "name": "members_2024",
+  "resources": [
+    {
+      "name": "members_2024",
+      "path": "../../source/members_2024.csv",
+      "format": "csv",
+      "schema": {
+        "fields": [
+          {
+            "name": "member_id",
+            "type": "integer",
+            "x-finetype-label": "representation.numeric.integer_number"
+          },
+          {
+            "name": "tier",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ]
+}

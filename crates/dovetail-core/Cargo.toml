@@ -16,6 +16,8 @@ finetype-guided = ["dep:finetype-model"]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# The Ossie model is YAML: the wire types read and write it.
+serde_yaml = "0.9.34"
 finetype-core = { workspace = true, features = ["embedded-taxonomy"] }
 finetype-model = { workspace = true, optional = true }
 parquet = { version = "53", default-features = false, features = ["arrow"] }
@@ -39,4 +41,3 @@ tempfile = "3"
 # Descriptor conformance is checked in the test suite only — jsonschema
 # stays out of the runtime dependency graph.
 jsonschema = "0.26"
-serde_yaml = "0.9.34"
