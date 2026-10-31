@@ -280,3 +280,44 @@ fn a_duplicate_combination_counts_the_part_it_reads() {
     assert_eq!(measure(None), (1000, 1000));
     assert_eq!(measure(Some(100)), (1000, 1000));
 }
+
+#[test]
+fn a_sampled_join_to_a_combination_reads_its_whole_key() {
+    // Each supplier part holds 200 rows, four times the sample: the sampled view
+    // holds a quarter of the supplier ids, the parts' full tables every one.
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_db_from(dir.path(), COMBINED);
+    let names = [
+        "suppliers_north",
+        "suppliers_south",
+        "products",
+        "stores",
+        "shipments_east",
+        "shipments_west",
+    ];
+    let s = session(&db, &names, Some(50));
+    let run = dovetail_core::combine::run_combined(&s).unwrap();
+    let suppliers = run
+        .combinations
+        .iter()
+        .find(|c| c.name == "suppliers")
+        .expect("the suppliers combination");
+    assert_eq!(
+        suppliers.kind,
+        dovetail_core::roles::CombinationKind::Partition
+    );
+    let e = run
+        .edges
+        .iter()
+        .find(|e| {
+            e.child.qualified() == "products.supplier_id"
+                && e.parent.qualified() == "suppliers.supplier_id"
+        })
+        .unwrap_or_else(|| panic!("products to suppliers in {:#?}", run.edges));
+    assert_eq!(e.status, EdgeStatus::Accepted, "{e:?}");
+    assert_eq!(e.verification.orphan_count, 0);
+    assert!(e.verification.parent_unique);
+    assert_eq!(e.evidence.value_overlap, 1.0);
+    assert_eq!(e.evidence.parent_total, 400);
+    assert_eq!(e.evidence.parent_distinct, 400);
+}

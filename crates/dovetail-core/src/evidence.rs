@@ -705,9 +705,9 @@ pub struct EdgeEvidence {
     pub parent_key_shaped: bool,
     /// Parent key values held by more than one parent row, NULLs left out.
     pub parent_duplicates: i64,
-    /// The parent's non-null key rows on the full data: `parent_total` unless
-    /// the session is sampled and the parent is a combination, whose view
-    /// holds only sampled rows.
+    /// The parent's non-null key rows on the full data. A sampled session
+    /// measures a source table, or a combination over its parts' full tables,
+    /// on its full rows, so this is `parent_total`.
     pub parent_full_total: i64,
 }
 
@@ -799,6 +799,13 @@ impl Dataset {
 /// How a session's queries name dovetail's own views.
 pub(crate) const VIEW_PREFIX: &str = "memory.main.";
 
+/// How a sampled session's queries name a combination's view over its parts' full
+/// tables, beside its sampled view in [`VIEW_PREFIX`].
+pub(crate) const FULL_VIEW_PREFIX: &str = "memory.full_data.";
+
+/// The schema of [`FULL_VIEW_PREFIX`].
+pub(crate) const FULL_VIEW_SCHEMA: &str = "memory.full_data";
+
 /// The datasets' names, after checking that no name is listed twice: a name
 /// is what evidence rows and edges carry, so two datasets of one name would
 /// read as one.
@@ -854,37 +861,33 @@ pub fn edge_evidence_with(
     reused: Vec<EdgeEvidence>,
 ) -> Result<Vec<EdgeEvidence>, EvidenceError> {
     let tables = dataset_names(datasets)?;
+    // A combination's views over its parts' full tables, which only a sampled
+    // session makes.
+    let full_views: BTreeSet<String> = match s.sampled() {
+        Some(_) => {
+            let mut stmt = s.conn().prepare(
+                "SELECT view_name FROM duckdb_views() \
+                 WHERE database_name = 'memory' AND schema_name = 'full_data'",
+            )?;
+            let rows = stmt.query_map([], |r| r.get(0))?;
+            rows.collect::<duckdb::Result<_>>()?
+        }
+        None => BTreeSet::new(),
+    };
     // A sampled session answers questions about a parent's whole key from
-    // the full table, for a dataset that is one of its source tables.
+    // its full rows: a source table's full table, and a combination's view
+    // over its parts' full tables.
     let full = |table: &str| -> Option<String> {
         s.sampled()?;
-        datasets
-            .iter()
-            .find(|d| d.name == table && d.relation == Relation::Source)
-            .and_then(|d| s.full_relation(&d.name))
-            .map(str::to_string)
+        let d = datasets.iter().find(|d| d.name == table)?;
+        match d.relation {
+            Relation::Source => s.full_relation(&d.name).map(str::to_string),
+            Relation::View => full_views
+                .contains(&d.name)
+                .then(|| format!("{FULL_VIEW_PREFIX}{}", quote(&d.name))),
+        }
     };
-    // The same for a combination's view: its parts' full relations, when
-    // every part has one.
-    let view_parts = |table: &str| -> Option<ViewParts> {
-        s.sampled()?;
-        let d = datasets
-            .iter()
-            .find(|d| d.name == table && d.relation == Relation::View && !d.parts.is_empty())?;
-        d.parts
-            .iter()
-            .map(|p| Some((p.clone(), s.full_relation(p)?.to_string())))
-            .collect()
-    };
-    let mut edges = measure_edges(
-        s.conn(),
-        &relation_of(datasets),
-        &full,
-        &view_parts,
-        cols,
-        &tables,
-        skip,
-    )?;
+    let mut edges = measure_edges(s.conn(), &relation_of(datasets), &full, cols, &tables, skip)?;
     if !reused.is_empty() {
         let position: std::collections::BTreeMap<(&str, &str), usize> = cols
             .iter()
@@ -914,14 +917,10 @@ pub fn edge_evidence_with(
 /// is the relation holding the whole of a table the rows were sampled from; a
 /// parent it names is measured there (its non-null rows, distinct values and
 /// duplicated values, and which child values it holds), not in `relation`.
-/// `view_parts(table)` names the parts of a combination's view and where each
-/// is read in full, so a view parent's key rows can be counted on the full
-/// data.
 pub(crate) fn measure_edges(
     conn: &Connection,
     relation: &dyn Fn(&str) -> String,
     full: &dyn Fn(&str) -> Option<String>,
-    view_parts: &dyn Fn(&str) -> Option<ViewParts>,
     cols: &[ColumnEvidence],
     tables: &[String],
     skip: &dyn Fn(&str, &str) -> bool,
@@ -990,8 +989,6 @@ pub(crate) fn measure_edges(
                         conn,
                         &relation(&parent.table),
                         full(&parent.table).as_deref(),
-                        view_parts(&parent.table).as_deref(),
-                        cols,
                         parent,
                     )?;
                     keys.insert(key, counts);
@@ -1043,9 +1040,6 @@ pub(crate) fn measure_edges(
     Ok(edges)
 }
 
-/// A combination's parts, each with the relation holding its full rows.
-pub(crate) type ViewParts = Vec<(String, String)>;
-
 /// A parent column's key counts.
 #[derive(Debug, Clone, Copy)]
 struct ParentKey {
@@ -1064,8 +1058,6 @@ fn parent_key(
     conn: &Connection,
     relation: &str,
     full: Option<&str>,
-    view_parts: Option<&[(String, String)]>,
-    cols: &[ColumnEvidence],
     parent: &ColumnEvidence,
 ) -> Result<ParentKey, EvidenceError> {
     let counts = |relation: &str| -> Result<(i64, i64, i64), EvidenceError> {
@@ -1095,40 +1087,11 @@ fn parent_key(
     } else {
         counts(relation)?.2
     };
-    // A combination's view holds sampled rows; its parts hold them all.
-    let c = quote(&parent.column);
-    // A part without the column holds no value of it.
-    let has_it = |p: &str| {
-        cols.iter()
-            .any(|x| x.table == p && x.column == parent.column)
-    };
-    let full_total = match view_parts {
-        Some(parts) => {
-            let arms: Vec<String> = parts
-                .iter()
-                .filter(|(p, _)| has_it(p))
-                .map(|(_, rel)| format!("SELECT count({c}) AS n FROM {rel}"))
-                .collect();
-            if arms.is_empty() {
-                0
-            } else {
-                conn.query_row(
-                    &format!(
-                        "SELECT CAST(coalesce(sum(n), 0) AS BIGINT) FROM ({})",
-                        arms.join(" UNION ALL ")
-                    ),
-                    [],
-                    |r| r.get(0),
-                )?
-            }
-        }
-        None => parent.non_null,
-    };
     Ok(ParentKey {
         total: parent.non_null,
         distinct: parent.distinct,
         duplicates,
-        full_total,
+        full_total: parent.non_null,
     })
 }
 

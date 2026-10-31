@@ -15,8 +15,7 @@ use super::{
 };
 use crate::combine::{self, view_column_evidence, CombinationKind};
 use crate::evidence::{
-    column_evidence, list_columns, ColumnEvidence, EvidenceError, Session, SESSION_PREFIX,
-    VIEW_PREFIX,
+    column_evidence, list_columns, ColumnEvidence, EvidenceError, Session, VIEW_PREFIX,
 };
 use crate::finetype_ext::TypingSource;
 use crate::packages::SourceTable;
@@ -257,12 +256,11 @@ impl Context<'_> {
     /// The combination's query with each `src` name written as the part's relation in
     /// the analyst's database.
     fn combined_source(&self, c: &combine::Combination) -> String {
-        let mut sql = c.source_sql.clone();
-        for p in &c.parts {
-            let relation = self.table_of(p).map_or(p.as_str(), |t| t.relation.as_str());
-            sql = sql.replace(&format!("{SESSION_PREFIX}{}", quote(p)), &quote(relation));
-        }
-        sql
+        c.source_over(|p| {
+            let relation = self.table_of(p).map_or(p, |t| t.relation.as_str());
+            Some(quote(relation))
+        })
+        .unwrap_or_else(|| c.source_sql.clone())
     }
 
     /// A name as SQL: bare when it is a plain identifier DuckDB does not reserve, else quoted.
