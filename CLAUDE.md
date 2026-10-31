@@ -33,6 +33,17 @@ brightfield (insight — interactive visualisation).
   extension from the pinned release, or by the model-free floor when it is
   unavailable. The design, its rulings and the role corpus are in
   `docs/table-roles.md`.
+- `dovetail model --db <duckdb> --pass sample|full --out <file>` — write one
+  Apache Ossie model across a DuckDB's tables: datasets, keys, typed fields,
+  and relationships, with each table's role and each join's grade and evidence
+  in Meridian's vendor extension. `--packages` names the datasets and types the
+  fields from FineType's data packages; `--base` carries an analyst's decisions
+  through untouched; `--verify` names the sample proposal the full pass
+  verifies. The sample pass proposes from a bounded sample, quickly; the full
+  pass re-measures on every row and rewrites only grades, evidence and
+  measured facts. Paths are explicit and the output is a proposal file written
+  atomically, never the analyst's model. The design, its rulings and the
+  hand-off contract with Brightfield are in `docs/ossie-model.md`.
 - Transform shim — pinned access to bundled tools so emitted scripts call
   dovetail's own vendored binaries: `dovetail jaq <program> <file>` (true
   passthrough to embedded jaq, NDJSON out), `dovetail calamine` (Excel),
