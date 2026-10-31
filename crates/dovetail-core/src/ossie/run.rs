@@ -203,13 +203,25 @@ fn usable(path: &Path, tables: &[SourceTable], base: Option<&Model>) -> Result<M
     let current = base.map(analyst_elements).unwrap_or_default();
     if let Some((what, _)) = analyst_elements(&model)
         .into_iter()
-        .find(|(what, held)| current.get(what) != Some(held))
+        .find(|(what, held)| !covered(&current, what, held))
     {
         return Err(stale(format!(
             "its {what} was decided by the analyst and the current base does not hold it as it is"
         )));
     }
     Ok(model)
+}
+
+/// Whether the base's analyst elements `current` hold `what` as `held`. An analyst
+/// dataset in the base covers every field of that dataset: carry replaces it whole.
+fn covered(current: &BTreeMap<Identity, String>, what: &Identity, held: &str) -> bool {
+    if current.get(what).map(String::as_str) == Some(held) {
+        return true;
+    }
+    match what {
+        Identity::Field(dataset, _) => current.contains_key(&Identity::Dataset(dataset.clone())),
+        _ => false,
+    }
 }
 
 /// What names an element: a dataset, a field of a dataset, or a join by its endpoints

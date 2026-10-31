@@ -760,3 +760,42 @@ fn a_sampled_session_judges_a_duplicate_on_the_full_tables() {
     let (_, kind) = sampled_kind("same", "SELECT * FROM stock_2024");
     assert_eq!(kind, CombinationKind::Duplicate);
 }
+
+#[test]
+fn an_analyst_field_under_a_dataset_the_base_now_holds_whole_is_not_stale() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_retail_db(dir.path());
+    let (proposal, _) = retail_sample(dir.path(), &db);
+    let base = analyst_base(proposal);
+    let base_path = dir.path().join("model.ossie.yaml");
+    std::fs::write(&base_path, write(&base)).unwrap();
+    let with_base = |pass, verify| ModelRequest {
+        base: Some(base_path.clone()),
+        ..request(&db, pass, verify)
+    };
+    // The proposal holds the analyst's `email` field of `customers`.
+    let (sample, _) = run_model(&with_base(Verified::Sample, None)).unwrap();
+    let sample_path = dir.path().join("sample.ossie.yaml");
+    std::fs::write(&sample_path, write(&sample)).unwrap();
+
+    // The analyst then takes the whole `customers` dataset, field and all.
+    let mut whole = base.clone();
+    let customers = whole
+        .datasets
+        .iter_mut()
+        .find(|d| d.name == "customers")
+        .unwrap();
+    customers.meta.decided_by = DecidedBy::Analyst;
+    std::fs::write(&base_path, write(&whole)).unwrap();
+    let (full, warnings) = run_model(&with_base(Verified::Full, Some(sample_path))).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(full.meta.pass, Some(Verified::Full));
+    assert!(full
+        .datasets
+        .iter()
+        .find(|d| d.name == "customers")
+        .unwrap()
+        .fields
+        .iter()
+        .any(|f| f.name == "email" && f.meta.decided_by == DecidedBy::Analyst));
+}

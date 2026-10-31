@@ -357,19 +357,23 @@ fn out_is_resolved_through_a_symlinked_directory() {
     assert_eq!(o.status.code(), Some(2), "{}", stderr(&o));
     assert_eq!(std::fs::read_to_string(&base).unwrap(), "keep me");
 
-    // The same text with a link that does not change what `..` means is not a clash:
-    // `dir/base.ossie.yaml` is a different file from `dir/real/base.ossie.yaml`.
-    let other = dir.join("base.ossie.yaml");
+    // Through the same link, `--out` really is `real/base.ossie.yaml`; a `--base` at
+    // `base.ossie.yaml` beside `work` is a different file, which a textual collapse
+    // of `work/..` would wrongly take for it.
+    let elsewhere = dir.join("base.ossie.yaml");
+    std::fs::write(&elsewhere, "not a model").unwrap();
     let o = model(
         &db,
         &[
             "--pass",
             "sample",
             "--base",
-            base.to_str().unwrap(),
+            elsewhere.to_str().unwrap(),
             "--out",
-            other.to_str().unwrap(),
+            through_link.to_str().unwrap(),
         ],
     );
     assert_ne!(o.status.code(), Some(2), "{}", stderr(&o));
+    assert!(!stderr(&o).contains("same file"), "{}", stderr(&o));
+    assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), "not a model");
 }
