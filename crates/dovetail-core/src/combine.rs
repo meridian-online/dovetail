@@ -382,8 +382,14 @@ fn classify(
         .join(", ");
     let select = |part: &str| format!("SELECT {list} FROM {SESSION_PREFIX}{}", quote(part));
 
+    // A sampled session's tables hold only the rows drawn, which two tables that differ
+    // elsewhere can share: the duplicate test reads the parts' full tables instead.
+    let judged = |part: &str| match s.sampled().and(s.full_relation(part)) {
+        Some(full) => format!("SELECT {list} FROM {full}"),
+        None => select(part),
+    };
     let duplicate = parts[1..].iter().try_fold(true, |all, p| {
-        Ok::<bool, EvidenceError>(all && identical(s, &select(&parts[0]), &select(p))?)
+        Ok::<bool, EvidenceError>(all && identical(s, &judged(&parts[0]), &judged(p))?)
     })?;
     let floor = matches!(s.typing, TypingSource::Floor { .. });
     let key = measure_table(s.conn(), cols, &[], &[], &Dataset::source(&parts[0]), floor)?.key;

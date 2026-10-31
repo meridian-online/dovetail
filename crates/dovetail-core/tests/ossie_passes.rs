@@ -704,3 +704,59 @@ fn full_pass_discovers_afresh_when_the_analyst_has_undone_something() {
         "{warnings:?}"
     );
 }
+
+/// Two 600-row tables, the second with one row changed.
+fn twin_tables(second: &str) -> String {
+    format!(
+        "CREATE TABLE stock_2024 AS SELECT CAST(i AS INTEGER) AS item_id, i * 2 AS qty
+             FROM range(1, 601) t(i);
+         CREATE TABLE stock_2025 AS {second};"
+    )
+}
+
+#[test]
+fn a_sampled_session_judges_a_duplicate_on_the_full_tables() {
+    use dovetail_core::combine::run_combined;
+    use dovetail_core::roles::CombinationKind;
+
+    let dir = tempfile::tempdir().unwrap();
+    let sampled_kind = |name: &str, second: &str| {
+        let db = build_raw_db_from(&subdir(dir.path(), name), &twin_tables(second));
+        let tables = [plain("stock_2024"), plain("stock_2025")];
+        let s = Session::over(&db, &tables, Some(50), SessionTyping::Packages).unwrap();
+        let sample_rows = |t: &str| -> i64 {
+            s.conn()
+                .query_row(&format!("SELECT count(*) FROM src.main.\"{t}\""), [], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        assert_eq!(sample_rows("stock_2024"), 50);
+        let samples_match: i64 = s
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM (
+                     (SELECT * FROM src.main.stock_2024 EXCEPT ALL SELECT * FROM src.main.stock_2025)
+                     UNION ALL
+                     (SELECT * FROM src.main.stock_2025 EXCEPT ALL SELECT * FROM src.main.stock_2024))",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let run = run_combined(&s).unwrap();
+        assert_eq!(run.combinations.len(), 1, "{:#?}", run.combinations);
+        (samples_match, run.combinations[0].kind)
+    };
+
+    // One row differs, and the sample did not draw it: the samples are identical.
+    let (differing_in_sample, kind) = sampled_kind(
+        "differs",
+        "SELECT CAST(i AS INTEGER) AS item_id, CASE WHEN i = 600 THEN -1 ELSE i * 2 END AS qty
+         FROM range(1, 601) t(i)",
+    );
+    assert_eq!(differing_in_sample, 0, "the sample drew the changed row");
+    assert_ne!(kind, CombinationKind::Duplicate);
+
+    let (_, kind) = sampled_kind("same", "SELECT * FROM stock_2024");
+    assert_eq!(kind, CombinationKind::Duplicate);
+}
