@@ -424,6 +424,9 @@ fn run_model_cmd(args: Vec<String>) -> ExitCode {
         eprintln!("dovetail model: --verify applies to the full pass only; ignored");
         verify = None;
     }
+    let mut writing = out.as_os_str().to_owned();
+    writing.push(".writing");
+    let writing = PathBuf::from(writing);
     for (flag, other) in [
         ("--db", Some(db.as_path())),
         ("--base", base.as_ref().map(Path::new)),
@@ -433,6 +436,12 @@ fn run_model_cmd(args: Vec<String>) -> ExitCode {
             if same_path(&out, other) {
                 return usage(&format!(
                     "--out is the same file as {flag}; name a different path"
+                ));
+            }
+            if same_path(&writing, other) {
+                return usage(&format!(
+                    "{flag} is the file {} that --out is written through; name a different path",
+                    writing.display()
                 ));
             }
         }
@@ -468,13 +477,23 @@ fn run_model_cmd(args: Vec<String>) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Whether two paths name the same file, by absolute path: canonical where the
-/// path exists, lexically absolute where it does not.
+/// Whether two paths name the same file, by absolute path with `.` and `..` resolved
+/// lexically, then canonical where the result exists.
 fn same_path(a: &Path, b: &Path) -> bool {
+    use std::path::Component;
     let abs = |p: &Path| {
-        std::fs::canonicalize(p)
-            .or_else(|_| std::path::absolute(p))
-            .unwrap_or_else(|_| p.to_path_buf())
+        let full = std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
+        let mut lexical = PathBuf::new();
+        for c in full.components() {
+            match c {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    lexical.pop();
+                }
+                other => lexical.push(other),
+            }
+        }
+        std::fs::canonicalize(&lexical).unwrap_or(lexical)
     };
     abs(a) == abs(b)
 }

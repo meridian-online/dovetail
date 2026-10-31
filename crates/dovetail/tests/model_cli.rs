@@ -283,3 +283,49 @@ fn out_naming_an_input_is_a_usage_error() {
         assert!(!dir.join("base.ossie.yaml.writing").exists());
     }
 }
+
+#[test]
+fn out_is_compared_after_resolving_dots_and_by_its_temporary_file() {
+    let dir = tmp_dir("out-dots");
+    let db = common::build_raw_retail_db(&dir);
+    let base = dir.join("base.ossie.yaml");
+    std::fs::write(&base, "keep me").unwrap();
+    let writing = dir.join("base.ossie.yaml.writing");
+    std::fs::write(&writing, "keep me too").unwrap();
+
+    // `missing` is genuinely absent, so only a lexical resolution of `..` can match.
+    let through_missing = dir.join("missing/../base.ossie.yaml");
+    assert!(!dir.join("missing").exists());
+    let o = model(
+        &db,
+        &[
+            "--pass",
+            "full",
+            "--base",
+            base.to_str().unwrap(),
+            "--out",
+            through_missing.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(o.status.code(), Some(2), "{}", stderr(&o));
+    assert!(stderr(&o).starts_with("dovetail model: "), "{}", stderr(&o));
+
+    // The temporary file `--out` is written through is itself an input.
+    let o = model(
+        &db,
+        &[
+            "--pass",
+            "full",
+            "--base",
+            writing.to_str().unwrap(),
+            "--out",
+            base.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(o.status.code(), Some(2), "{}", stderr(&o));
+    assert!(stderr(&o).contains(".writing"), "{}", stderr(&o));
+
+    assert_eq!(std::fs::read_to_string(&base).unwrap(), "keep me");
+    assert_eq!(std::fs::read_to_string(&writing).unwrap(), "keep me too");
+    assert!(!dir.join("missing").exists());
+}
