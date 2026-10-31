@@ -625,3 +625,28 @@ fn both_passes_carry_the_analyst_through() {
         assert_eq!(m.meta.rejected, rejected, "{pass}");
     }
 }
+
+#[test]
+fn full_pass_keeps_an_empty_source_file_empty() {
+    // Without packages dovetail writes `source_file: ""` for every dataset; a full
+    // pass over that proposal must not fill it from the table name or a query.
+    let dir = tempfile::tempdir().unwrap();
+    let db = build_raw_retail_db(dir.path());
+    let no_packages = |pass, verify| ModelRequest {
+        packages: None,
+        ..request(&db, pass, verify)
+    };
+    let (sample, _) = run_model(&no_packages(Verified::Sample, None)).unwrap();
+    assert!(sample
+        .datasets
+        .iter()
+        .all(|d| d.meta.source_file.is_empty()));
+    let path = dir.path().join("sample.ossie.yaml");
+    std::fs::write(&path, write(&sample)).unwrap();
+
+    let (full, _) = run_model(&no_packages(Verified::Full, Some(path))).unwrap();
+    for d in &full.datasets {
+        assert_eq!(d.meta.source_file, "", "{}", d.name);
+    }
+    assert_eq!(layout(&full), layout(&sample));
+}

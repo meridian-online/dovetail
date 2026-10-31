@@ -170,3 +170,31 @@ fn a_rejected_list_with_unsafe_values_still_writes_and_reads() {
     assert_eq!(back.meta.rejected.len(), 1);
     assert!(back.meta.rejected[0].extras.contains_key("odd"));
 }
+
+#[test]
+fn an_empty_source_file_reads_back_empty() {
+    let yaml = r#"version: 0.2.0.dev0
+name: m
+datasets:
+- name: a
+  source: raw_a
+  fields:
+  - name: id
+    expression:
+      sql: id
+  custom_extensions:
+  - vendor_name: MERIDIAN
+    data: '{"source_file":""}'
+- name: b
+  source: b.csv
+  fields:
+  - name: id
+    expression:
+      sql: id
+"#;
+    let m = read(yaml).unwrap();
+    assert_eq!(m.datasets[0].meta.source_file, "");
+    // A dataset with no Meridian entry defaults to its source, as Brightfield reads it.
+    assert_eq!(m.datasets[1].meta.source_file, "b.csv");
+    assert_eq!(read(&write(&m)).unwrap().datasets[0].meta.source_file, "");
+}

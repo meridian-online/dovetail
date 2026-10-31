@@ -125,12 +125,12 @@ fn from_wire(w: WireModel) -> Result<Model, OssieError> {
 }
 
 fn dataset_from_wire(d: WireDataset) -> Result<Dataset, OssieError> {
-    let (mut meta, extensions) =
-        meridian::split::<DatasetMeta>(d.custom_extensions, DatasetMeta::default)
-            .map_err(meridian_error(&format!("dataset {}", d.name)))?;
-    if meta.source_file.is_empty() {
-        meta.source_file = d.source.clone();
-    }
+    let source = d.source.clone();
+    let (meta, extensions) = meridian::split::<DatasetMeta>(d.custom_extensions, || DatasetMeta {
+        source_file: source,
+        ..DatasetMeta::default()
+    })
+    .map_err(meridian_error(&format!("dataset {}", d.name)))?;
     let fields = d
         .fields
         .into_iter()
