@@ -1,7 +1,7 @@
 //! The Apache Ossie model dovetail writes: Ossie's core keys, typed, plus the
 //! `MERIDIAN` extension on each element that Brightfield reads.
 //!
-//! [`read`] and [`write`] are the only way in and out of a document. Reading is
+//! [`read`] and [`write()`] are the only way in and out of a document. Reading is
 //! lenient: keys this module does not model are kept and written back, and an
 //! element with no `MERIDIAN` entry reads with default metadata. Writing is
 //! deterministic: keys come out in the wire order, so the same model always gives
