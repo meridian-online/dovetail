@@ -416,4 +416,37 @@ fn out_is_resolved_through_a_symlinked_directory() {
     );
     assert_ne!(o.status.code(), Some(2), "{}", stderr(&o));
     assert!(!stderr(&o).contains("same file"), "{}", stderr(&o));
+
+    // Neither `--out` nor its `.writing` file exists, and the path runs symlink, `..`,
+    // a missing last component: only resolving through the link finds `real/x.duckdb`.
+    let real_db = dir.join("real/x.duckdb");
+    std::fs::copy(&db, &real_db).unwrap();
+    let missing = dir.join("work/../x.duckdb");
+    assert!(!dir.join("real/x.duckdb.writing").exists());
+    let o = model(
+        &real_db,
+        &["--pass", "sample", "--out", missing.to_str().unwrap()],
+    );
+    assert_eq!(o.status.code(), Some(2), "{}", stderr(&o));
+    assert!(stderr(&o).contains("same file"), "{}", stderr(&o));
+
+    // The same path with `dir/y.yaml` as the base is a different file.
+    let other = dir.join("y.yaml");
+    std::fs::write(&other, "not a model").unwrap();
+    let missing = dir.join("work/../y.yaml");
+    assert!(!dir.join("real/y.yaml").exists());
+    assert!(!dir.join("real/y.yaml.writing").exists());
+    let o = model(
+        &db,
+        &[
+            "--pass",
+            "sample",
+            "--base",
+            other.to_str().unwrap(),
+            "--out",
+            missing.to_str().unwrap(),
+        ],
+    );
+    assert_ne!(o.status.code(), Some(2), "{}", stderr(&o));
+    assert!(!stderr(&o).contains("same file"), "{}", stderr(&o));
 }

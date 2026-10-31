@@ -704,6 +704,27 @@ fn full_pass_discovers_afresh_when_the_analyst_has_undone_something() {
         "{warnings:?}"
     );
 
+    // A proposal holding an analyst element but no rejection: with no base the analyst
+    // rule is the one that fires, and the warning names the element.
+    let mut kept = base.clone();
+    kept.meta.rejected.clear();
+    let kept_base = dir.path().join("kept.ossie.yaml");
+    std::fs::write(&kept_base, write(&kept)).unwrap();
+    let (kept_sample, _) = run_model(&ModelRequest {
+        base: Some(kept_base),
+        ..request(&db, Verified::Sample, None)
+    })
+    .unwrap();
+    assert!(kept_sample.meta.rejected.is_empty());
+    let kept_path = dir.path().join("kept-sample.ossie.yaml");
+    std::fs::write(&kept_path, write(&kept_sample)).unwrap();
+    let (_, warnings) = run_model(&request(&db, Verified::Full, Some(kept_path))).unwrap();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("decided by the analyst") && w.contains("dataset stores")),
+        "{warnings:?}"
+    );
 }
 
 #[test]
