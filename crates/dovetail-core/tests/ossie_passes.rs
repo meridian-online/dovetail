@@ -577,10 +577,22 @@ fn both_passes_carry_the_analyst_through() {
     let (sample, warnings) = run_model(&with_base(Verified::Sample, None)).unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
     let sample_text = write(&sample);
-    let sample_path = dir.path().join("sample.ossie.yaml");
-    std::fs::write(&sample_path, &sample_text).unwrap();
-    let (full, warnings) =
-        run_model(&with_base(Verified::Full, Some(sample_path.clone()))).unwrap();
+    // The full pass verifies a proposal written without the base, so only its own
+    // carry can bring the analyst's decisions into the result.
+    let (bare, warnings) = run_model(&request(&db, Verified::Sample, None)).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let bare_text = write(&bare);
+    assert!(
+        read(&bare_text)
+            .unwrap()
+            .relationships
+            .iter()
+            .any(|r| r.from == "loyalty_visits" && r.to == "stores"),
+        "the bare proposal holds the rejected join"
+    );
+    let bare_path = dir.path().join("bare.ossie.yaml");
+    std::fs::write(&bare_path, &bare_text).unwrap();
+    let (full, warnings) = run_model(&with_base(Verified::Full, Some(bare_path))).unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
     assert_eq!(full.meta.pass, Some(Verified::Full));
 
