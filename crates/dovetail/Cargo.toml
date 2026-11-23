@@ -26,6 +26,11 @@ dovetail-core = { path = "../dovetail-core", default-features = false }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+# Restores SIGPIPE's default action at startup, so a closed stdout pipe ends
+# the process quietly instead of panicking in `println!`.
+libc = "0.2"
+
 [dev-dependencies]
 # The model tests build the retail fixture into a DuckDB file. Keep this spec
 # in step with the pin in dovetail-core, or two libduckdb builds get linked.
