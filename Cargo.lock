@@ -972,6 +972,7 @@ dependencies = [
  "anyhow",
  "dovetail-core",
  "duckdb",
+ "libc",
  "serde_json",
 ]
 

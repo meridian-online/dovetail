@@ -76,4 +76,10 @@ and date, then open a fresh `[Unreleased]` above it.
   profile (vendored from FineType). `resource.path` is now emitted relative to
   the descriptor, as 2.0 requires.
 
+### Fixed
+
+- `dovetail` no longer panics with "failed printing to stdout: Broken pipe"
+  when the reader of its output closes early, as in `dovetail relate … | head`.
+  On Unix it now ends by SIGPIPE, quietly, as `cat` does.
+
 [Unreleased]: https://github.com/meridian-online/dovetail/commits/main
